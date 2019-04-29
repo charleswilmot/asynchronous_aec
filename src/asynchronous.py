@@ -154,11 +154,11 @@ class Worker:
             shape=coarse_scale_uint8.get_shape())
 
         with tf.variable_scope("fine_scale_encoder"):
-            conv1_fine = tl.conv2d(self.fine_scale + 0, 32, 8, 2, "same", activation_fn=lrelu)  # 16, 16, 16
-            conv2_fine = tl.conv2d(conv1_fine, 16, 4, 2, "same", activation_fn=lrelu)       # 32,  8,  8
+            conv1_fine = tl.conv2d(self.fine_scale + 0, 128, 3, 2, "same", activation_fn=lrelu)  # 16, 16, 16
+            conv2_fine = tl.conv2d(conv1_fine, 128, 3, 2, "same", activation_fn=lrelu)       # 32,  8,  8
         with tf.variable_scope("coarse_scale_encoder"):
-            conv1_coarse = tl.conv2d(self.coarse_scale + 0, 32, 8, 2, "same", activation_fn=lrelu)  # 16, 16, 16
-            conv2_coarse = tl.conv2d(conv1_coarse, 16, 4, 2, "same", activation_fn=lrelu)       # 32,  8,  8
+            conv1_coarse = tl.conv2d(self.coarse_scale + 0, 128, 3, 2, "same", activation_fn=lrelu)  # 16, 16, 16
+            conv2_coarse = tl.conv2d(conv1_coarse, 128, 3, 2, "same", activation_fn=lrelu)       # 32,  8,  8
         with tf.variable_scope("joint_encoder_decoder"):
             batch_size = tf.shape(conv1_fine)[0]
             flat_fine = tf.reshape(conv2_fine, (batch_size, -1))
@@ -170,11 +170,11 @@ class Worker:
             latent_fine = tf.reshape(self.latent[:, :latent_size // 2], [-1] + list(conv2_fine.get_shape())[1:])
             latent_coarse = tf.reshape(self.latent[:, latent_size // 2:], [-1] + list(conv2_coarse.get_shape())[1:])
         with tf.variable_scope("fine_scale_decoder"):
-            deconv1_fine = tl.conv2d_transpose(latent_fine, 16, 4, 2, "same", activation_fn=lrelu)
-            deconv2_fine = tl.conv2d_transpose(deconv1_fine, 6, 4, 2, "same", activation_fn=None)
+            deconv1_fine = tl.conv2d_transpose(latent_fine, 128, 3, 2, "same", activation_fn=lrelu)
+            deconv2_fine = tl.conv2d_transpose(deconv1_fine, 6, 3, 2, "same", activation_fn=None)
         with tf.variable_scope("coarse_scale_decoder"):
-            deconv1_coarse = tl.conv2d_transpose(latent_coarse, 16, 4, 2, "same", activation_fn=lrelu)
-            deconv2_coarse = tl.conv2d_transpose(deconv1_coarse, 6, 4, 2, "same", activation_fn=None)
+            deconv1_coarse = tl.conv2d_transpose(latent_coarse, 128, 3, 2, "same", activation_fn=lrelu)
+            deconv2_coarse = tl.conv2d_transpose(deconv1_coarse, 6, 3, 2, "same", activation_fn=None)
         with tf.variable_scope("model_auxiliary_ops"):
             self.error_fine = tf.reduce_mean((self.fine_scale - deconv2_fine) ** 2, axis=[1, 2, 3])
             self.error_coarse = tf.reduce_mean((self.coarse_scale - deconv2_coarse) ** 2, axis=[1, 2, 3])
