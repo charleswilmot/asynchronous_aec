@@ -389,7 +389,8 @@ class Worker:
 
     def reset_env(self):
         self.screen.episode_init()
-        random_distance = np.random.uniform(low=0.5, high=5)
+        # random_distance = np.random.uniform(low=0.5, high=5)
+        random_distance = self.screen.distance
         random_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
         self.robot.setEyePositions((0.0, 0.0, random_vergence))
         self.tilt_delta = 0.0
