@@ -249,7 +249,7 @@ class Worker:
             verg_actor_loss = -tf.maximum(verg_log_picked_probs, -4) * targets - self.entropy_coef * verg_entropy
             self.actor_loss = tf.reduce_mean(verg_actor_loss)  # tilt_actor_loss  # + pan_actor_loss + verg_actor_loss
             self.optimizer = tf.train.GradientDescentOptimizer(self.model_lr)
-            self.train_op = self.optimizer.minimize(self.batch_error + 5e-4 * self.critic_loss)  # + 1e-0 * self.actor_loss)
+            self.train_op = self.optimizer.minimize(self.batch_error + 5e-4 * self.critic_loss + 1e-0 * self.actor_loss)
 
         summary_error_fine = tf.summary.scalar("/model/error_fine", self.error_fine[0])
         summary_error_coarse = tf.summary.scalar("/model/error_coarse", self.error_coarse[0])
