@@ -413,7 +413,7 @@ class Worker:
     def train(self):
         # states, actions, rewards = self.get_trajectory()
         self.get_trajectory()
-        for _ in range(20):
+        for _ in range(1):
             transitions = self.buffer.batch(self.sequence_length)
             states = [s for s, a, r in transitions]
             actions = [a for s, a, r in transitions]
