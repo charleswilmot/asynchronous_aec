@@ -502,7 +502,7 @@ class Experiment:
 
     def worker_func(self, task_index):
         np.random.seed(task_index)
-        worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, 2e-1, 0, 0, 0, 5e-3, 40, 40 * 500)
+        worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, 2e-1, 0, 0, 0, 5e-2, 40, 40 * 500)
         worker.wait_for_variables_initialization()
         worker()
 
