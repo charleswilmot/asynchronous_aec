@@ -234,7 +234,10 @@ class Worker:
             self.train_step = tf.Variable(0, dtype=tf.int32)
             self.train_step_inc = self.train_step.assign_add(1)
             # critic
-            self.rewards = tf.stop_gradient(normalize(tf.stack([-self.error_fine, -self.error_coarse], axis=1), 0.99))
+            mean = 0.055
+            std = 0.055
+            self.rewards = tf.stop_gradient((mean - tf.stack([self.error_fine, self.error_coarse], axis=1)) / std)
+            # self.rewards = tf.stop_gradient(normalize(tf.stack([-self.error_fine, -self.error_coarse], axis=1), 0.999))
             critic_diff = fc2_critic - self.rewards
             self.critic_loss = tf.reduce_mean(critic_diff ** 2)
             critic_quality = tf.clip_by_value(tf.reduce_mean(critic_diff / (tf.reduce_mean(self.rewards, axis=1, keepdims=True) - self.rewards)), 0, 20)
