@@ -432,7 +432,7 @@ class Worker:
             ret = self.sess.run(fetches, feed_dict=feed_dict)
             self.summary_writer.add_summary(ret["summary"], global_step=ret["step"])
             # print(ret["errors"])
-            print("{} episode {}\tfine  {:6.3f} coarse  {:6.3f} critic  {:6.3f} actor  {:6.3f}".format(self.name, ret["step"], ret["errors"][0], ret["errors"][1], ret["errors"][2], ret["errors"][3]))
+            print("{} episode {}\tfine  {:6.3f}      coarse  {:6.3f}      critic  {:6.3f}      actor  {:6.3f}".format(self.name, ret["step"], ret["errors"][0], ret["errors"][1], ret["errors"][2], ret["errors"][3]))
         return ret["step"]
 
     def start_training(self, n_updates):
@@ -577,12 +577,13 @@ class Experiment:
 
 
 if __name__ == "__main__":
-    n_parameter_servers = 4
-    n_workers = 28
-    experiment_dir = "../experiments/tmp2/"
+    n_parameter_servers = 1
+    n_workers = 32
+    # experiment_dir = "../experiments/good_fixation_init_small_filters_no_reward_norm_alr_1e-2/"
+    experiment_dir = "../experiments/tmp6/"
 
     with Experiment(n_parameter_servers, n_workers, experiment_dir) as exp:
         # exp.start_tensorboard()
         for i in range(100):
-            exp.asynchronously_train(1000)
+            exp.asynchronously_train(200)
             exp.flush_data()
