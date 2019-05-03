@@ -179,7 +179,7 @@ def delta_reward_wrt_delta_vergence(data, save=False):
     cb = fig.colorbar(hexbin, ax=ax)
     cb.set_label("Delta reward")
     if save:
-        fig.savefig(plotpath + "/delta_reward_wrt_delta_vergence_all_scales.png")
+        fig.savefig(plotpath + "/delta_reward_wrt_delta_vergence.png")
     else:
         plt.show()
         plt.close(fig)
