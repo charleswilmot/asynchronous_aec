@@ -193,22 +193,23 @@ class Worker:
         # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
         fc4 = tl.fully_connected(fc1, 1, activation_fn=None)
         self.scale_critic_values[ratio] = fc4
-        reward = tf.stop_gradient(self.scale_rewards[ratio])
-        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4 - reward) ** 2, axis=1)
+        reward = tf.stop_gradient(self.scale_rewards[ratio][1:])
+        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4[:-1] - reward) ** 2, axis=1)
         self.scale_critic_loss[ratio] = tf.reduce_mean(self.scale_critic_losses[ratio])
 
     def define_actor(self):
         inp = tf.stop_gradient(self.latent)
         self.picked_actions = {}
         self.logits = {}
+        self.probs = {}
         self.distributions = {}
         self.sampled_actions_indices = {}
         self.greedy_actions_indices = {}
         self.greedy_actions_prob = {}
         self.log_prob_picked_actions = {}
         self.entropies = {}
-        self.actors_targets = {}
         self.actors_losses = {}
+        self.actors_targets = tf.stop_gradient(self.rewards - self.critic_values[:-1, 0])
         for joint_name in ["tilt", "pan", "vergence"]:
             fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
             # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
@@ -217,17 +218,26 @@ class Worker:
             fc4 = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=lrelu)
             self.picked_actions[joint_name] = tf.placeholder(shape=(None, 1), dtype=tf.int32)
             self.logits[joint_name] = fc4
-            self.distributions[joint_name] = tf.distributions.Categorical(logits=fc4)
+            self.probs[joint_name] = tf.nn.softmax(fc4)
+            self.distributions[joint_name] = tf.distributions.Categorical(probs=self.probs[joint_name])
+            # self.distributions[joint_name] = tf.distributions.Categorical(logits=fc4)
             self.sampled_actions_indices[joint_name] = self.distributions[joint_name].sample()
             self.greedy_actions_indices[joint_name] = tf.argmax(fc4, axis=1)
             self.greedy_actions_prob[joint_name] =  \
                 self.distributions[joint_name].prob(self.greedy_actions_indices[joint_name])
             self.log_prob_picked_actions[joint_name] = \
-                self.distributions[joint_name].log_prob(self.picked_actions[joint_name])
-            self.entropies[joint_name] = self.distributions[joint_name].entropy()
-            self.actors_targets[joint_name] = tf.stop_gradient(self.rewards - self.critic_values)
+                self.distributions[joint_name].log_prob(self.picked_actions[joint_name][:, 0])[:-1]
+            self.entropies[joint_name] = self.distributions[joint_name].entropy()[:-1]
+            # self.actors_targets = tf.Print(
+            #     self.actors_targets,
+            #     [tf.shape(self.log_prob_picked_actions[joint_name]),
+            #     tf.shape(self.rewards),
+            #     tf.shape(self.critic_values),
+            #     tf.shape(self.actors_targets),
+            #     tf.shape(self.picked_actions[joint_name])],
+            #     self.name + "  " + joint_name)
             self.actors_losses[joint_name] = tf.reduce_mean(
-                -self.log_prob_picked_actions[joint_name] * self.actors_targets[joint_name] -
+                -self.log_prob_picked_actions[joint_name] * self.actors_targets -
                 self.entropy_coef * self.entropies[joint_name])
         self.actor_loss = \
             sum([self.actors_losses[joint_name] for joint_name in ["tilt", "pan", "vergence"]])
@@ -250,7 +260,7 @@ class Worker:
             self.define_autoencoder(ratio, filter_size=4, stride=2)
         self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
         self.autoencoder_loss = sum([self.scale_loss[r] for r in self.ratios])
-        self.rewards = sum([self.scale_rewards[r] for r in self.ratios])
+        self.rewards = sum([self.scale_rewards[r] for r in self.ratios])[1:]
         ### critic
         self.scale_critic_values = {}
         self.scale_critic_losses = {}
@@ -346,7 +356,7 @@ class Worker:
             actions.append(ret["sampled_actions_indices"])
             # actions.append(ret["greedy_actions_indices"])
             self.apply_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
-        self.buffer.incorporate_multiple(zip(states, actions))
+        self.buffer.incorporate((states, actions))
         return states, actions
 
     def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration):
@@ -418,10 +428,8 @@ class Worker:
 
     def train(self):
         self.get_trajectory()
-        for _ in range(1):
-            transitions = self.buffer.batch(self.sequence_length)
-            states = [s for s, a in transitions]
-            actions = [a for s, a in transitions]
+        transitions = self.buffer.batch(1)
+        for states, actions in transitions:
             fetches = {
                 "ops": [self.train_op],
                 "summary": self.summary,
