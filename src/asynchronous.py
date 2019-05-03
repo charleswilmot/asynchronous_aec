@@ -84,6 +84,10 @@ def get_available_port(start_port=6006):
     return port
 
 
+def custom_loss(x):
+    return (1 - 1 / tf.cosh(2 * x)) / (1 - 1 / np.cosh(2))
+
+
 class Worker:
     def __init__(self, cluster, task_index, pipe, logdir,
                  model_lr, critic_lr, actor_lr,
@@ -105,6 +109,7 @@ class Worker:
         self.buffer = Buffer(size=model_buffer_size)
         self.pipe = pipe
         self.logdir = logdir
+        self.n_actions_per_joint = 9
         self.define_networks()
         self.define_actions_sets()
         self.end_episode_data = []
@@ -125,169 +130,163 @@ class Worker:
         self.screen = vb.ConstantSpeedScreen(self.universe.sim, (0.5, 5), 0.0, 0, self.textures)
         self.screen.set_positions(-2, 0, 0)
 
+    def define_scale_inp(self, ratio):
+        crop_side_length = 16
+        height_slice = slice(
+            (240 - crop_side_length * ratio) // 2,
+            (240 + crop_side_length * ratio) // 2)
+        width_slice = slice(
+            (320 - crop_side_length * ratio) // 2,
+            (320 + crop_side_length * ratio) // 2)
+        scale_uint8 = self.cams[:, height_slice, width_slice, :]
+        scale_uint8 = tf.image.resize_bilinear(scale_uint8, [crop_side_length, crop_side_length])
+        scale = tf.placeholder_with_default(
+            tf.cast(scale_uint8, tf.float32) / 127.5 - 1,
+            shape=scale_uint8.get_shape())
+        self.scales_inp[ratio] = scale
+
+    def define_autoencoder(self, ratio, filter_size=4, stride=2):
+        inp = self.scales_inp[ratio]
+        batch_size = tf.shape(inp)[0]
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
+        # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
+        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
+        target = tf.extract_image_patches(
+            inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
+        )
+        size = np.prod(bottleneck.get_shape()[1:])
+        self.scale_latent[ratio] = tf.reshape(bottleneck, (-1, size))
+        self.scale_rec[ratio] = reconstruction
+        sub = self.scale_rec[ratio] - target
+        self.scale_losses[ratio] = tf.reduce_mean(sub ** 2, axis=[1, 2, 3])
+        # self.scale_losses[ratio] = tf.reduce_mean(custom_loss(sub), axis=[1, 2, 3])
+        self.scale_rewards[ratio] = -(self.scale_losses[ratio] - 0.03) / 0.03
+        self.scale_loss[ratio] = tf.reduce_mean(self.scale_losses[ratio])
+        ### Images for tensorboard:
+        n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
+        left_right = tf.reshape(reconstruction[0], (n_patches, n_patches, filter_size, filter_size, 6))
+        left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
+        left = left_right[..., :3]
+        right = left_right[..., 3:]
+        image_left = tf.concat([left, right], axis=0)
+        left_right = tf.reshape(target[0], (n_patches, n_patches, filter_size, filter_size, 6))
+        left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
+        left = left_right[..., :3]
+        right = left_right[..., 3:]
+        image_right = tf.concat([left, right], axis=0)
+        self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
+
+    def define_critic(self, ratio):
+        inp = tf.stop_gradient(self.scale_latent[ratio])
+        # inp = self.scale_latent[ratio]
+        fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+        # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
+        # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
+        # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
+        fc4 = tl.fully_connected(fc1, 1, activation_fn=None)
+        self.scale_critic_values[ratio] = fc4
+        reward = tf.stop_gradient(self.scale_rewards[ratio])
+        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4 - reward) ** 2, axis=1)
+        self.scale_critic_loss[ratio] = tf.reduce_mean(self.scale_critic_losses[ratio])
+
+    def define_actor(self):
+        inp = tf.stop_gradient(self.latent)
+        self.picked_actions = {}
+        self.logits = {}
+        self.distributions = {}
+        self.sampled_actions_indices = {}
+        self.greedy_actions_indices = {}
+        self.greedy_actions_prob = {}
+        self.log_prob_picked_actions = {}
+        self.entropies = {}
+        self.actors_targets = {}
+        self.actors_losses = {}
+        for joint_name in ["tilt", "pan", "vergence"]:
+            fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+            # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
+            # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
+            # fc4 = tl.fully_connected(fc3, self.n_actions_per_joint, activation_fn=lrelu)
+            fc4 = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=lrelu)
+            self.picked_actions[joint_name] = tf.placeholder(shape=(None, 1), dtype=tf.int32)
+            self.logits[joint_name] = fc4
+            self.distributions[joint_name] = tf.distributions.Categorical(logits=fc4)
+            self.sampled_actions_indices[joint_name] = self.distributions[joint_name].sample()
+            self.greedy_actions_indices[joint_name] = tf.argmax(fc4, axis=1)
+            self.greedy_actions_prob[joint_name] =  \
+                self.distributions[joint_name].prob(self.greedy_actions_indices[joint_name])
+            self.log_prob_picked_actions[joint_name] = \
+                self.distributions[joint_name].log_prob(self.picked_actions[joint_name])
+            self.entropies[joint_name] = self.distributions[joint_name].entropy()
+            self.actors_targets[joint_name] = tf.stop_gradient(self.rewards - self.critic_values)
+            self.actors_losses[joint_name] = tf.reduce_mean(
+                -self.log_prob_picked_actions[joint_name] * self.actors_targets[joint_name] -
+                self.entropy_coef * self.entropies[joint_name])
+        self.actor_loss = \
+            sum([self.actors_losses[joint_name] for joint_name in ["tilt", "pan", "vergence"]])
+
     def define_networks(self):
         self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
         self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
-        cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
-        crop_side_length = 32
-        coarse_scale_ratio = 4
-        height_slice = slice(
-            (240 - crop_side_length) // 2,
-            (240 + crop_side_length) // 2)
-        width_slice = slice(
-            (320 - crop_side_length) // 2,
-            (320 + crop_side_length) // 2)
-        fine_scale_uint8 = cams[:, height_slice, width_slice, :]
-        self.fine_scale = tf.placeholder_with_default(
-            tf.cast(fine_scale_uint8, tf.float32) / 127.5 - 1,
-            shape=fine_scale_uint8.get_shape())
-        height_slice = slice(
-            (240 - crop_side_length * coarse_scale_ratio) // 2,
-            (240 + crop_side_length * coarse_scale_ratio) // 2)
-        width_slice = slice(
-            (320 - crop_side_length * coarse_scale_ratio) // 2,
-            (320 + crop_side_length * coarse_scale_ratio) // 2)
-        coarse_scale_uint8 = cams[:, height_slice, width_slice, :]
-        coarse_scale_uint8 = tf.image.resize_bilinear(coarse_scale_uint8, [crop_side_length, crop_side_length])
-        self.coarse_scale = tf.placeholder_with_default(
-            tf.cast(coarse_scale_uint8, tf.float32) / 127.5 - 1,
-            shape=coarse_scale_uint8.get_shape())
-
-        with tf.variable_scope("fine_scale_encoder"):
-            conv1_fine = tl.conv2d(self.fine_scale + 0, 128, 3, 2, "same", activation_fn=lrelu)  # 16, 16, 16
-            conv2_fine = tl.conv2d(conv1_fine, 128, 3, 2, "same", activation_fn=lrelu)       # 32,  8,  8
-        with tf.variable_scope("coarse_scale_encoder"):
-            conv1_coarse = tl.conv2d(self.coarse_scale + 0, 128, 3, 2, "same", activation_fn=lrelu)  # 16, 16, 16
-            conv2_coarse = tl.conv2d(conv1_coarse, 128, 3, 2, "same", activation_fn=lrelu)       # 32,  8,  8
-        with tf.variable_scope("joint_encoder_decoder"):
-            batch_size = tf.shape(conv1_fine)[0]
-            flat_fine = tf.reshape(conv2_fine, (batch_size, -1))
-            flat_coarse = tf.reshape(conv2_coarse, (batch_size, -1))
-            combined = tf.concat([flat_fine, flat_coarse], axis=-1)
-            latent_size = int(np.prod(conv2_fine.get_shape()[1:]) + np.prod(conv2_coarse.get_shape()[1:]))
-            combined = tf.reshape(combined, (-1, latent_size))
-            self.latent = tl.fully_connected(combined, latent_size, activation_fn=None)
-            latent_fine = tf.reshape(self.latent[:, :latent_size // 2], [-1] + list(conv2_fine.get_shape())[1:])
-            latent_coarse = tf.reshape(self.latent[:, latent_size // 2:], [-1] + list(conv2_coarse.get_shape())[1:])
-        with tf.variable_scope("fine_scale_decoder"):
-            deconv1_fine = tl.conv2d_transpose(latent_fine, 128, 3, 2, "same", activation_fn=lrelu)
-            deconv2_fine = tl.conv2d_transpose(deconv1_fine, 6, 3, 2, "same", activation_fn=None)
-        with tf.variable_scope("coarse_scale_decoder"):
-            deconv1_coarse = tl.conv2d_transpose(latent_coarse, 128, 3, 2, "same", activation_fn=lrelu)
-            deconv2_coarse = tl.conv2d_transpose(deconv1_coarse, 6, 3, 2, "same", activation_fn=None)
-        with tf.variable_scope("model_auxiliary_ops"):
-            self.error_fine = tf.reduce_mean((self.fine_scale - deconv2_fine) ** 2, axis=[1, 2, 3])
-            self.error_coarse = tf.reduce_mean((self.coarse_scale - deconv2_coarse) ** 2, axis=[1, 2, 3])
-            self.batch_error_fine = tf.reduce_mean((self.fine_scale - deconv2_fine) ** 2)
-            self.batch_error_coarse = tf.reduce_mean((self.coarse_scale - deconv2_coarse) ** 2)
-            self.batch_error = self.batch_error_fine + self.batch_error_coarse
-            self.error = self.error_fine + self.error_coarse
-
-        with tf.variable_scope("actor"):
-            self.n_actions_per_joint = 9
-            n_actions_per_joint = self.n_actions_per_joint
-            fc1_actor = tl.fully_connected(tf.stop_gradient(self.latent), 200, activation_fn=lrelu)
-            fc2_actor = tl.fully_connected(fc1_actor, n_actions_per_joint * 3, activation_fn=None)
-            self.tilt_actor = fc2_actor[:, n_actions_per_joint * 0: n_actions_per_joint * 1]
-            self.pan_actor = fc2_actor[:, n_actions_per_joint * 1: n_actions_per_joint * 2]
-            self.verg_actor = fc2_actor[:, n_actions_per_joint * 2: n_actions_per_joint * 3]
-            # distributions
-            # tilt_dist = tf.distributions.Categorical(probs=tf.nn.softmax(self.tilt_actor))
-            # pan_dist = tf.distributions.Categorical(probs=tf.nn.softmax(self.pan_actor))
-            # verg_dist = tf.distributions.Categorical(probs=tf.nn.softmax(self.verg_actor))
-            tilt_dist = tf.distributions.Categorical(logits=self.tilt_actor)
-            pan_dist = tf.distributions.Categorical(logits=self.pan_actor)
-            verg_dist = tf.distributions.Categorical(logits=self.verg_actor)
-            # action indices
-            self.action_indices = tf.placeholder(shape=(None, 3), dtype=tf.int32)
-            tilt_action_indices = self.action_indices[:, 0]
-            pan_action_indices = self.action_indices[:, 1]
-            verg_action_indices = self.action_indices[:, 2]
-            # action log probabilities
-            tilt_log_picked_probs = tilt_dist.log_prob(tilt_action_indices)
-            pan_log_picked_probs = pan_dist.log_prob(pan_action_indices)
-            verg_log_picked_probs = verg_dist.log_prob(verg_action_indices)
-            # action probabilities
-            tilt_picked_probs = tilt_dist.prob(tilt_action_indices)
-            pan_picked_probs = pan_dist.prob(pan_action_indices)
-            verg_picked_probs = verg_dist.prob(verg_action_indices)
-            # greedy action indices
-            tilt_greedy_actions_indices = tf.argmax(self.tilt_actor, axis=-1)
-            pan_greedy_actions_indices = tf.argmax(self.pan_actor, axis=-1)
-            verg_greedy_actions_indices = tf.argmax(self.verg_actor, axis=-1)
-            # samples
-            self.tilt_sample = tilt_dist.sample()
-            self.pan_sample = pan_dist.sample()
-            self.verg_sample = verg_dist.sample()
-            # entropies
-            tilt_entropy = tilt_dist.entropy()
-            pan_entropy = pan_dist.entropy()
-            verg_entropy = verg_dist.entropy()
-
-        with tf.variable_scope("critic"):
-            fc1_critic = tl.fully_connected(tf.stop_gradient(self.latent), 200, activation_fn=lrelu)
-            fc2_critic = tl.fully_connected(fc1_critic, 2, activation_fn=None)
-            self.critic_values = fc2_critic
-            critic_value = tf.reduce_sum(fc2_critic, axis=1)
-
-        with tf.variable_scope("rl_auxiliary_ops"):
-            self.train_step = tf.Variable(0, dtype=tf.int32)
-            self.train_step_inc = self.train_step.assign_add(1)
-            # critic
-            mean = 0.055
-            std = 0.055
-            self.rewards = tf.stop_gradient((mean - tf.stack([self.error_fine, self.error_coarse], axis=1)) / std)
-            # self.rewards = tf.stop_gradient(normalize(tf.stack([-self.error_fine, -self.error_coarse], axis=1), 0.999))
-            critic_diff = fc2_critic - self.rewards
-            self.critic_loss = tf.reduce_mean(critic_diff ** 2)
-            critic_quality = tf.clip_by_value(tf.reduce_mean(critic_diff / (tf.reduce_mean(self.rewards, axis=1, keepdims=True) - self.rewards)), 0, 20)
-            # actor
-            targets = tf.reduce_sum(self.rewards, axis=1) - critic_value
-            targets = tf.stop_gradient(targets)
-            tilt_actor_loss = -tf.maximum(tilt_log_picked_probs, -4) * targets  # - self.entropy_coef * tilt_entropy
-            pan_actor_loss = -tf.maximum(pan_log_picked_probs, -4) * targets - self.entropy_coef * pan_entropy
-            verg_actor_loss = -tf.maximum(verg_log_picked_probs, -4) * targets - self.entropy_coef * verg_entropy
-            self.actor_loss = tf.reduce_mean(verg_actor_loss)  # tilt_actor_loss  # + pan_actor_loss + verg_actor_loss
-            self.optimizer = tf.train.GradientDescentOptimizer(self.model_lr)
-            self.train_op = self.optimizer.minimize(self.batch_error + 5e-4 * self.critic_loss + 1e-0 * self.actor_loss)
-
-        summary_error_fine = tf.summary.scalar("/model/error_fine", self.error_fine[0])
-        summary_error_coarse = tf.summary.scalar("/model/error_coarse", self.error_coarse[0])
-        summary_error_total = tf.summary.scalar("/model/error_total", self.error[0])
-        summary_error_batch = tf.summary.scalar("/model/error_batch", self.batch_error)
-        summary_error_critic = tf.summary.scalar("/rl/critic_loss", self.critic_loss)
-        summary_quality_critic = tf.summary.scalar("/rl/critic_quality", critic_quality)
-        summary_error_actor = tf.summary.scalar("/rl/actor_loss", self.actor_loss)
-        summary_reward_fine = tf.summary.scalar("/rl/reward_fine", self.rewards[0, 0])
-        summary_reward_coarse = tf.summary.scalar("/rl/reward_coarse", self.rewards[0, 1])
-        fine_scale_image_left = tf.concat([self.fine_scale[:, :, :, :3], deconv2_fine[:, :, :, :3]], axis=2)
-        fine_scale_image_right = tf.concat([self.fine_scale[:, :, :, 3:], deconv2_fine[:, :, :, 3:]], axis=2)
-        fine_scale_image = tf.concat([fine_scale_image_left, fine_scale_image_right], axis=1)
-        summary_fine_reconstruction = tf.summary.image("fine_scale", fine_scale_image, max_outputs=1)
-        coarse_scale_image_left = tf.concat([self.coarse_scale[:, :, :, :3], deconv2_coarse[:, :, :, :3]], axis=2)
-        coarse_scale_image_right = tf.concat([self.coarse_scale[:, :, :, 3:], deconv2_coarse[:, :, :, 3:]], axis=2)
-        coarse_scale_image = tf.concat([coarse_scale_image_left, coarse_scale_image_right], axis=1)
-        summary_coarse_reconstruction = tf.summary.image("coarse_scale", coarse_scale_image, max_outputs=1)
-        summary_tilt_entropy = tf.summary.scalar("/rl/tilt_entropy", tilt_entropy[0])
-        summary_pan_entropy = tf.summary.scalar("/rl/pan_entropy", pan_entropy[0])
-        summary_verg_entropy = tf.summary.scalar("/rl/verg_entropy", verg_entropy[0])
-        # self.model_summary = tf.summary.scalar("/dummy", tf.reduce_mean(self.error_coarse))
-        self.model_summary = tf.summary.merge([
-            summary_error_fine,
-            summary_error_coarse,
-            summary_error_total,
-            summary_error_batch,
-            summary_error_critic,
-            summary_quality_critic,
-            summary_error_actor,
-            summary_reward_fine,
-            summary_reward_coarse,
-            summary_fine_reconstruction,
-            summary_coarse_reconstruction,
-            summary_tilt_entropy,
-            summary_pan_entropy,
-            summary_verg_entropy
-        ])
+        self.cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
+        ### autoencoder
+        self.scales_inp = {}
+        self.scale_latent = {}
+        self.scale_rec = {}
+        self.scale_losses = {}
+        self.scale_rewards = {}
+        self.scale_loss = {}
+        self.scale_tensorboard_images = {}
+        self.ratios = list(range(1, 9))
+        for ratio in self.ratios:
+            self.define_scale_inp(ratio)
+            self.define_autoencoder(ratio, filter_size=4, stride=2)
+        self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
+        self.autoencoder_loss = sum([self.scale_loss[r] for r in self.ratios])
+        self.rewards = sum([self.scale_rewards[r] for r in self.ratios])
+        ### critic
+        self.scale_critic_values = {}
+        self.scale_critic_losses = {}
+        self.scale_critic_loss = {}
+        for ratio in self.ratios:
+            self.define_critic(ratio)
+        self.critic_loss = sum([self.scale_critic_loss[r] for r in self.ratios])
+        self.critic_values = sum([self.scale_critic_values[r] for r in self.ratios])
+        ### actor
+        self.define_actor()
+        ### summaries
+        summary_loss = tf.summary.scalar("/autoencoders/loss", self.autoencoder_loss)
+        summary_critic_loss = tf.summary.scalar("/critic/loss", self.critic_loss)
+        summary_scale_critic_loss = [tf.summary.scalar("/critic/ratio_{}".format(r), self.scale_critic_loss[r]) for r in self.ratios]
+        summary_actor_loss = tf.summary.scalar("/actor/loss", self.actor_loss)
+        summary_per_actor_loss = [tf.summary.scalar("/actor/loss_{}".format(jn), self.actors_losses[jn]) for jn in ["tilt", "pan", "vergence"]]
+        summary_per_actor_entropy = [tf.summary.scalar("/actor/entropy_{}".format(jn), tf.reduce_mean(self.entropies[jn])) for jn in ["tilt", "pan", "vergence"]]
+        summary_per_actor_max_prob = [tf.summary.scalar("/actor/max_prob_{}".format(jn), tf.reduce_mean(self.greedy_actions_prob[jn])) for jn in ["tilt", "pan", "vergence"]]
+        summary_images = [tf.summary.image("ratio_{}".format(r), self.scale_tensorboard_images[r], max_outputs=1) for r in self.ratios]
+        self.summary = tf.summary.merge(
+            [summary_loss, summary_critic_loss, summary_actor_loss] +
+            summary_images +
+            summary_scale_critic_loss +
+            summary_per_actor_loss +
+            summary_per_actor_entropy +
+            summary_per_actor_max_prob)
+        self.train_step = tf.Variable(0, dtype=tf.int32)
+        self.train_step_inc = self.train_step.assign_add(1)
+        self.optimizer_autoencoder = tf.train.AdamOptimizer(self.model_lr)
+        self.optimizer_critic = tf.train.AdamOptimizer(self.critic_lr)
+        self.optimizer_actor = tf.train.AdamOptimizer(self.actor_lr)
+        self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss + 10.0 * self.actor_loss + .025 * self.critic_loss)
+        self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss)
+        self.train_op_critic = self.optimizer_critic.minimize(self.critic_loss)
+        self.train_op_actor = self.optimizer_actor.minimize(self.actor_loss)
+        self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic, self.train_op_actor])
 
     def wait_for_variables_initialization(self):
         while len(self.sess.run(tf.report_uninitialized_variables())) > 0:
@@ -320,44 +319,46 @@ class Worker:
         actions = []
         rewards = []
         fetches = {
-            "fine_scale": self.fine_scale,
-            "coarse_scale": self.coarse_scale,
-            "reward": self.rewards,
-            "actions": [self.tilt_sample, self.pan_sample, self.verg_sample]
+            "scales_inp": self.scales_inp,
+            "greedy_actions_indices": self.greedy_actions_indices
         }
         fetches_store = {
             "train_step": self.train_step,
-            "fine_scale": self.fine_scale,
-            "coarse_scale": self.coarse_scale,
-            "reward": self.rewards,
-            "actions": [self.tilt_sample, self.pan_sample, self.verg_sample],
-            "critic_values": self.critic_values
+            "scales_inp": self.scales_inp,
+            "scale_reward": self.scale_rewards,
+            "greedy_actions_indices": self.greedy_actions_indices,
+            "sampled_actions_indices": self.sampled_actions_indices,
+            "scale_critic_values": self.scale_critic_values
         }
         self.reset_env()
-        for _ in range(self.sequence_length):
+        for iteration in range(self.sequence_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-            if _ == self.sequence_length - 1:
+            if iteration < self.sequence_length:
                 ret = self.sess.run(fetches_store, feed_dict)
                 object_distance = self.screen.distance
                 eyes_position = self.robot.getEyePositions()
                 eyes_speed = (self.tilt_delta, self.pan_delta)
-                self.store_data(ret, object_distance, eyes_position, eyes_speed)
+                self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration)
             else:
                 ret = self.sess.run(fetches, feed_dict)
-            states.append((ret["fine_scale"][0], ret["coarse_scale"][0]))
-            actions.append([a[0] for a in ret["actions"]])
-            rewards.append(ret["reward"])
-            self.apply_action(ret["actions"])
-        self.buffer.incorporate_multiple(zip(states, actions, rewards))
-        return states, actions, rewards
+            states.append({r: ret["scales_inp"][r][0] for r in self.ratios})
+            actions.append(ret["sampled_actions_indices"])
+            # actions.append(ret["greedy_actions_indices"])
+            self.apply_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
+        self.buffer.incorporate_multiple(zip(states, actions))
+        return states, actions
 
-    def store_data(self, ret, object_distance, eyes_position, eyes_speed):
+    def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration):
         data = {
+            "worker": self.task_index,
             "train_step": ret["train_step"],
-            "rewards": ret["reward"],
-            "actions": ret["actions"],
-            "critic_values": ret["critic_values"],
+            "iteration": iteration,
+            "global_iteration": ret["train_step"] * self.sequence_length + iteration,
+            "rewards": ret["scale_reward"],
+            "greedy_actions_indices": ret["greedy_actions_indices"],
+            "sampled_actions_indices": ret["sampled_actions_indices"],
+            "critic_values": ret["scale_critic_values"],
             "object_distance": object_distance,
             "eyes_position": eyes_position,
             "eyes_speed": eyes_speed
@@ -382,15 +383,20 @@ class Worker:
         self.pan_delta += self.action_set_pan[pan]
         tilt_new_pos = tilt_pos + self.tilt_delta
         pan_new_pos = pan_pos + self.pan_delta
-        verg_new_pos = np.clip(verg_pos + self.action_set_vergence[verg], -8, 0)
+        # verg_new_pos = np.clip(verg_pos + self.action_set_vergence[verg], -8, 0)
+        verg_new_pos = verg_pos + self.action_set_vergence[verg]
+        if verg_new_pos >= 0 or verg_new_pos <= -8:
+            random_distance = np.random.uniform(low=0.5, high=5)
+            # random_distance = self.screen.distance
+            verg_new_pos = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
         self.robot.setEyePositions((tilt_new_pos, pan_new_pos, verg_new_pos))
         self.screen.iteration_init()
         self.universe.sim.stepSimulation()
 
     def reset_env(self):
         self.screen.episode_init()
-        # random_distance = np.random.uniform(low=0.5, high=5)
-        random_distance = self.screen.distance
+        random_distance = np.random.uniform(low=0.5, high=5)
+        # random_distance = self.screen.distance
         random_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
         self.robot.setEyePositions((0.0, 0.0, random_vergence))
         self.tilt_delta = 0.0
@@ -411,28 +417,23 @@ class Worker:
         self.action_set_vergence = np.concatenate([negative, [0], positive])
 
     def train(self):
-        # states, actions, rewards = self.get_trajectory()
         self.get_trajectory()
         for _ in range(1):
             transitions = self.buffer.batch(self.sequence_length)
-            states = [s for s, a, r in transitions]
-            actions = [a for s, a, r in transitions]
-            rewards = [r for s, a, r in transitions]
+            states = [s for s, a in transitions]
+            actions = [a for s, a in transitions]
             fetches = {
                 "ops": [self.train_op],
-                "summary": self.model_summary,
+                "summary": self.summary,
                 "step": self.train_step_inc,
-                "errors": [self.batch_error_fine, self.batch_error_coarse, self.critic_loss, self.actor_loss]
+                "autoencoder_loss": self.autoencoder_loss
             }
-            feed_dict = {
-                self.fine_scale: [a for a, b in states],
-                self.coarse_scale: [b for a, b in states],
-                self.action_indices: actions
-            }
+            feed_dict = {self.scales_inp[r]: [s[r] for s in states] for r in self.ratios}
+            for jn in ["tilt", "pan", "vergence"]:
+                feed_dict[self.picked_actions[jn]] = [a[jn] for a in actions]
             ret = self.sess.run(fetches, feed_dict=feed_dict)
             self.summary_writer.add_summary(ret["summary"], global_step=ret["step"])
-            # print(ret["errors"])
-            print("{} episode {}\tfine  {:6.3f}      coarse  {:6.3f}      critic  {:6.3f}      actor  {:6.3f}".format(self.name, ret["step"], ret["errors"][0], ret["errors"][1], ret["errors"][2], ret["errors"][3]))
+            print("{} episode {}\tautoencoder loss:  {:6.3f}".format(self.name, ret["step"], ret["autoencoder_loss"]))
         return ret["step"]
 
     def start_training(self, n_updates):
@@ -502,7 +503,7 @@ class Experiment:
 
     def worker_func(self, task_index):
         np.random.seed(task_index)
-        worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, 2e-1, 0, 0, 0, 5e-2, 40, 40 * 500)
+        worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, 1e-3, 1e-3, 1e-3, 0, 0.0, 40, 40 * 50)
         worker.wait_for_variables_initialization()
         worker()
 
@@ -578,12 +579,12 @@ class Experiment:
 
 if __name__ == "__main__":
     n_parameter_servers = 1
-    n_workers = 32
+    n_workers = 4
     # experiment_dir = "../experiments/good_fixation_init_small_filters_no_reward_norm_alr_1e-2/"
-    experiment_dir = "../experiments/tmp6/"
+    experiment_dir = "../experiments/tmp7/"
 
     with Experiment(n_parameter_servers, n_workers, experiment_dir) as exp:
-        # exp.start_tensorboard()
+        exp.start_tensorboard()
         for i in range(100):
             exp.asynchronously_train(200)
             exp.flush_data()
