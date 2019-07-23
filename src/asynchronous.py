@@ -3,6 +3,7 @@ import vrep
 from tempfile import TemporaryDirectory
 import png
 from replay_buffer import Buffer
+from returns inport tf_returns
 import socket
 import multiprocessing
 import subprocess
@@ -97,7 +98,7 @@ class Conf:
         self.softmax_temperature_decay = args.softmax_temperature_decay
         self.entropy_reg = args.entropy_reg
         self.entropy_reg_decay = args.entropy_reg_decay
-        self.discount_factor = 0
+        self.discount_factor = args.discount_factor
         self.sequence_length = args.sequence_length
         self.update_per_episode = args.update_per_episode
         self.buffer_size = 20
@@ -224,8 +225,10 @@ class Worker:
         inp = tf.stop_gradient(self.scale_latent_conv[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
         per_patch_critic = tl.conv2d(inp, 1, 1, 1, "valid", activation_fn=None)
-        reward = tf.stop_gradient(self.scale_rewards_patch[ratio][1:])
-        self.scale_critic_losses_patch[ratio] = tf.reduce_mean((per_patch_critic[:-1, :, :, 0] - reward) ** 2, axis=1)
+        reward = self.scale_rewards_patch[ratio][1:]
+        returns = tf_returns(reward, self.discount_factor, start=per_patch_critic[-1, :, :, 0][tf.newaxis], axis=0)
+        self.scale_returns_patch[ratio] = returns
+        self.scale_critic_losses_patch[ratio] = tf.reduce_mean((per_patch_critic[:-1, :, :, 0] - returns) ** 2, axis=1)
         self.scale_critic_loss_patch[ratio] = tf.reduce_mean(self.scale_critic_losses_patch[ratio])
         ### SCALE LEVEL
         size = np.prod(per_patch_critic.get_shape()[1:])
@@ -237,8 +240,10 @@ class Worker:
         # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
         fc4 = tl.fully_connected(fc1, 1, activation_fn=None)
         self.scale_critic_values[ratio] = fc4
-        reward = tf.stop_gradient(self.scale_rewards[ratio][1:])
-        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4[:-1] - reward) ** 2, axis=1)
+        reward = self.scale_rewards[ratio][1:]
+        returns = tf_returns(reward, self.discount_factor, start=fc4[-1][tf.newaxis], axis=0)
+        self.scale_retunrs[ratio] = returns
+        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4[:-1] - returns) ** 2, axis=1)
         self.scale_critic_loss[ratio] = tf.reduce_mean(self.scale_critic_losses[ratio])
         self.scale_critic_loss_total[ratio] = self.scale_critic_loss[ratio] + self.scale_critic_loss_patch[ratio]
 
@@ -311,9 +316,11 @@ class Worker:
         ### critic
         self.scale_critic_losses_patch = {}
         self.scale_critic_loss_patch = {}
+        self.scale_returns_patch = {}
         self.scale_critic_values = {}
         self.scale_critic_losses = {}
         self.scale_critic_loss = {}
+        self.scale_returns = {}
         self.scale_critic_loss_total = {}
         for ratio in self.ratios:
             self.define_critic(ratio)
@@ -322,7 +329,8 @@ class Worker:
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
         fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
         self.critic_values = tl.fully_connected(fc2, 1, activation_fn=None)
-        self.critic_loss_global = tf.reduce_mean((self.critic_values[:-1] - tf.stop_gradient(self.rewards[1:])) ** 2)
+        returns = tf_returns(self.rewards[1:], self.discount_factor, start=self.critic_values[-1][tf.newaxis], axis=0)
+        self.critic_loss_global = tf.reduce_mean((self.critic_values[:-1] - returns) ** 2)
         self.critic_loss = sum([self.scale_critic_loss_total[r] for r in self.ratios]) + self.critic_loss_global
         ### actor
         self.define_actor()
@@ -563,14 +571,6 @@ class Worker:
             self.play_trajectory(greedy=greedy)
             print("{} trajectory {}/{}".format(self.name, i, n_trajectories))
         self.pipe.send("{} going IDLE".format(self.name))
-
-    # def rewards_to_return(self, rewards, prev_return=0):
-    #     returns = np.zeros_like(rewards)
-    #     for i in range(len(rewards) - 1, -1, -1):
-    #         r = rewards[i]
-    #         prev_return = r + self.discount_factor * prev_return
-    #         returns[i] = prev_return
-    #     return returns
 
 
 def get_n_ports(n, start_port=19000):
@@ -867,6 +867,13 @@ if __name__ == "__main__":
         type=float,
         default=default_alr,
         help="actor learning rate."
+    )
+
+    parser.add_argument(
+        '-df', '--discount-factor',
+        type=float,
+        default=0,
+        help="Discount factor."
     )
 
     parser.add_argument(
