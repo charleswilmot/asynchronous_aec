@@ -1,3 +1,4 @@
+from scipy.stats import binned_statistic
 from numpy import ma
 from matplotlib import cbook
 from matplotlib.cm import seismic
@@ -12,13 +13,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import re
 import argparse
+import warnings
 
+
+warnings.filterwarnings("ignore")
 
 keys = [
-    "train_step",
-    "rewards",
+    "trajectory",
+    "scale_rewards",
     "actions",
-    "critic_values",
+    "scale_critic_values",
     "object_distance",
     "eyes_position",
     "eyes_speed"
@@ -38,41 +42,64 @@ def get_worker_and_flush_ids(path):
     return ids
 
 
+def merge_flush(flush_list):
+    dummy_key = list(flush_list[0].keys())[0]
+    total_length = sum(len(f[dummy_key]) for f in flush_list)
+    data = {k: np.zeros([total_length] + list(flush_list[0][k].shape[1:]), dtype=flush_list[0][k].dtype) for k in flush_list[0]}
+    index = 0
+    for f in flush_list:
+        index_new = index + len(f[dummy_key])
+        for k, v in f.items():
+            data[k][index:index_new] = v
+        index = index_new
+    return data
+
+
 def get_data(path, flush_id=None):
+    return merge_flush(get_data_nonmerged(path, flush_id=flush_id))
+
+
+def get_data_nonmerged(path, flush_id=None):
     if flush_id is None:
         worker_ids = get_worker_and_flush_ids(path)
         flush_id = list(worker_ids[0])
         flush_id.sort()
-        return get_data(path, flush_id)
+        return get_data_nonmerged(path, flush_id)
     elif type(flush_id) is int:
         worker_ids = get_worker_and_flush_ids(path)
         if flush_id < 0:
             flush_ids = list(worker_ids[0])
             flush_ids.sort()
-            return get_data(path, flush_ids[flush_id:])
+            return get_data_nonmerged(path, flush_ids[flush_id:])
         data = []
         for worker_id in worker_ids:
-            with open(path + "/worker_{:04d}_flush_{:04d}.pkl".format(worker_id, flush_id), "rb") as f:
-                data += pickle.load(f)
+            filename = "/worker_{:04d}_flush_{:04d}.pkl".format(worker_id, flush_id)
+            with open(path + filename, "rb") as f:
+                data.append(pickle.load(f))
         return data
     else:
         data = []
         for i in flush_id:
-            data += get_data(path, i)
+            data += get_data_nonmerged(path, i)
         return data
 
 
-def group_by_train_step(data):
-    ret = defaultdict(list)
-    for d in data:
-        ret[(d["worker"], d["train_step"])].append(d)
-    return ret
+def group_by_trajectory(data):
+    length = len(data["worker"])
+    dtype = np.dtype([("worker", data["worker"].dtype), ("trajectory", data["trajectory"].dtype), ("iteration", data["iteration"].dtype)])
+    vals = np.empty(length, dtype=dtype)
+    vals["worker"] = data["worker"]
+    vals["trajectory"] = data["trajectory"]
+    vals["iteration"] = data["iteration"]
+    args = np.argsort(vals, order=("trajectory", "worker", "iteration"))
+    traj_length = np.max(data["iteration"]) + 1
+    data = {k: v[args].reshape([-1, traj_length] + list(v.shape[1:])) for k, v in data.items()}
+    return data
 
 
-def vergence_error(d):
-    vergence = np.squeeze(d["eyes_position"][-1])
-    object_distance = d["object_distance"]
-    return vergence + np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2
+def vergence_error(eyes_positions, object_distances):
+    vergences = eyes_positions[..., -1]
+    return - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distances)) * 2 - vergences
 
 
 class MidPointNorm(Normalize):
@@ -141,40 +168,45 @@ class MidPointNorm(Normalize):
 
 def delta_reward_wrt_delta_vergence(data, save=False):
     gridsize = 100
-    data = group_by_train_step(data)
+    data = group_by_trajectory(data)
+    n_trajectories = len(data["iteration"])
     fig = plt.figure()
-    for r in ratios:
+    vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
+    rewards = data["scale_rewards"]
+    for ratio_index, r in enumerate(ratios):
+        print("ratio", r)
         vergence_error_start = []
         vergence_error_end = []
         delta_reward = []
-        for key in data:
-            vergence_errors = [vergence_error(d) for d in data[key]]
-            rewards = [d["rewards"][r][0] for d in data[key]]
-            for v0, r0 in zip(vergence_errors, rewards):
-                for v1, r1 in zip(vergence_errors, rewards):
+        for i in range(n_trajectories):
+            for v0, r0 in zip(vergence_errors[i], rewards[i]):
+                for v1, r1 in zip(vergence_errors[i], rewards[i]):
                     vergence_error_start.append(v0)
                     vergence_error_end.append(v1)
-                    delta_reward.append(r1 - r0)
-        ax = fig.add_subplot(2, 4, r, axisbg='grey')
+                    delta_reward.append(r1[ratio_index] - r0[ratio_index])
+        print("ratio", r, "done")
+        ax = fig.add_subplot(2, 4, ratio_index + 1, facecolor='grey')
         hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10)
         # hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=None, reduce_C_function=np.std, gridsize=gridsize, mincnt=10)
         cb = fig.colorbar(hexbin, ax=ax)
         cb.set_label("Delta reward")
     if save:
-        fig.savefig(plotpath + "/delta_reward_wrt_delta_vergence.png")
+        fig.savefig(plotpath + "/delta_reward_wrt_delta_vergence_all_scales.png")
     else:
         plt.show()
         plt.close(fig)
     fig = plt.figure()
-    for key in data:
-        vergence_errors = [vergence_error(d) for d in data[key]]
-        rewards = [sum([d["rewards"][r][0] for r in ratios]) for d in data[key]]
-        for v0, r0 in zip(vergence_errors, rewards):
-            for v1, r1 in zip(vergence_errors, rewards):
+    vergence_error_start = []
+    vergence_error_end = []
+    delta_reward = []
+    rewards = data["total_reward"]
+    for i in range(n_trajectories):
+        for v0, r0 in zip(vergence_errors[i], rewards[i]):
+            for v1, r1 in zip(vergence_errors[i], rewards[i]):
                 vergence_error_start.append(v0)
                 vergence_error_end.append(v1)
                 delta_reward.append(r1 - r0)
-    ax = fig.add_subplot(111, axisbg='grey')
+    ax = fig.add_subplot(111, facecolor='grey')
     hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10)
     cb = fig.colorbar(hexbin, ax=ax)
     cb.set_label("Delta reward")
@@ -185,7 +217,7 @@ def delta_reward_wrt_delta_vergence(data, save=False):
         plt.close(fig)
 
 
-def reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, iterations, title=None):
+def reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, title=None):
     N = 150
     X = np.linspace(min(vergence_errors), max(vergence_errors), N)
     Y = np.linspace(min(rewards), max(rewards), N)
@@ -200,7 +232,6 @@ def reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, iterations, title=
     ax.plot(X, mean, "r-")
     ax.plot(X, Y[np.argmax(probs, axis=0)], "k-")
     ax.axvline(0, c="k")
-    # ax.scatter(vergence_errors, rewards, c=iterations, cmap="Greys")  # "white"  , marker=","  , alpha=1   , s=1
     ax.set_title(title)
     ax.set_xlabel("vergence error")
     ax.set_ylabel("reward")
@@ -208,15 +239,12 @@ def reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, iterations, title=
 
 def reward_wrt_vergence(data, min_dist, max_dist, save=False):
     fig = plt.figure()
-    data = [d for d in data if min_dist < d["object_distance"] < max_dist]
-    vergence_errors = [vergence_error(d) for d in data]
-    iterations = np.array([d["iteration"] for d in data]).astype(np.float32)
-    # iterations /= np.max(iterations)
-    for r in ratios:
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
+    for ratio_index, r in enumerate(ratios):
         ax = fig.add_subplot(2, 4, r)
-        rewards = [d["rewards"][r][0] for d in data]
-        reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, iterations,
-                                           title="ratio {}".format(r))
+        rewards = data["scale_rewards"][where, ratio_index]
+        reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, title="ratio {}".format(r))
     if save:
         fig.savefig(plotpath + "/reward_wrt_vergence.png")
     else:
@@ -226,13 +254,11 @@ def reward_wrt_vergence(data, min_dist, max_dist, save=False):
 
 def reward_wrt_vergence_all_scales(data, min_dist, max_dist, save=False):
     fig = plt.figure()
-    data = [d for d in data if min_dist < d["object_distance"] < max_dist]
-    vergence_errors = [vergence_error(d) for d in data]
-    iterations = np.array([d["iteration"] for d in data]).astype(np.float32)
-    # iterations /= np.max(iterations)
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
     ax = fig.add_subplot(1, 1, 1)
-    rewards = [sum([d["rewards"][r][0] for r in ratios]) for d in data]
-    reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, iterations, title="all scales")
+    rewards = data["total_reward"][where]
+    reward_wrt_vergence_fill_ax(ax, vergence_errors, rewards, title="all scales")
     if save:
         fig.savefig(plotpath + "/reward_wrt_vergence_all_scales.png")
     else:
@@ -263,11 +289,11 @@ def critic_wrt_vergence_fill_ax(ax, vergence_errors, critic, title=None):
 
 def critic_wrt_vergence(data, min_dist, max_dist, save=False):
     fig = plt.figure()
-    data = [d for d in data if min_dist < d["object_distance"] < max_dist]
-    vergence_errors = [vergence_error(d) for d in data]
-    for r in ratios:
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
+    for ratio_index, r in enumerate(ratios):
         ax = fig.add_subplot(2, 4, r)
-        critic = [d["critic_values"][r][0][0] for d in data]
+        critic = data["scale_critic_values"][where, ratio_index]
         critic_wrt_vergence_fill_ax(ax, vergence_errors, critic,
                                            title="ratio {}".format(r))
     if save:
@@ -279,10 +305,10 @@ def critic_wrt_vergence(data, min_dist, max_dist, save=False):
 
 def critic_wrt_vergence_all_scales(data, min_dist, max_dist, save=False):
     fig = plt.figure()
-    data = [d for d in data if min_dist < d["object_distance"] < max_dist]
-    vergence_errors = [vergence_error(d) for d in data]
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
     ax = fig.add_subplot(1, 1, 1)
-    critic = [sum([d["critic_values"][r][0][0] for r in ratios]) for d in data]
+    critic = np.sum(data["scale_critic_values"][where, ratio_index], axis=-1)
     critic_wrt_vergence_fill_ax(ax, vergence_errors, critic, title="all scales")
     if save:
         fig.savefig(plotpath + "/critic_wrt_vergence_all_scales.png")
@@ -292,32 +318,50 @@ def critic_wrt_vergence_all_scales(data, min_dist, max_dist, save=False):
 
 
 def action_wrt_vergence_fill_ax(ax, vergence_errors, action, title=None):
-    ax.hist2d(vergence_errors, action, bins=[25, 25], cmin=1)  # , cmax=50)
+    ax.hist2d(vergence_errors, action, bins=[75, 75], cmin=1)  # , cmax=50)
     # ax.plot(vergence_errors, action, ".")
     ax.set_title(title)
     ax.set_xlabel("vergence error")
     ax.set_ylabel("action")
 
 
-def action_wrt_vergence(data, min_dist, max_dist, save=False):
+def action_wrt_vergence(data, min_dist, max_dist, greedy=False, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    data = [d for d in data if min_dist < d["object_distance"] < max_dist]
-    vergence_errors = [vergence_error(d) for d in data]
-    actions = [d["sampled_actions_indices"]["vergence"][0] for d in data]
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
+    action_key = "greedy_actions_indices" if greedy else "sampled_actions_indices"
+    actions = data[action_key][where, -1][0]
+    n_bins = 50
+    bins = np.linspace(np.min(vergence_errors), np.max(vergence_errors), n_bins)
+    args = np.digitize(vergence_errors, bins)
+    probs = []
+    for i in range(1, n_bins):
+        counts = np.bincount(actions[np.where(args==i)], minlength=n_actions_per_joint)
+        # probs.append(counts)
+        tmp = counts / np.sum(counts)
+        # tmp[4] = 0
+        probs.append(tmp)
+        # print("\n")
+    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2), n_actions_per_joint // 2), interpolation="none")
+    fig.colorbar(im)
+    ax.set_title("Action wrt vergence error")
+    ax.set_xlabel("vergence error")
+    ax.set_ylabel("action")
     # actions = [d["greedy_actions_indices"]["vergence"][0] for d in data]
-    actions = np.asarray(action_set)[actions]
-    ax.plot([action_set[0], action_set[-1]], [action_set[0], action_set[-1]], "k-")
-    action_wrt_vergence_fill_ax(ax, vergence_errors, actions, title="action wrt vergence error")
+    # actions_val = np.asarray(action_set)[actions]
+    # ax.plot([action_set[0], action_set[-1]], [action_set[-1], action_set[0]], "k-")
+    # action_wrt_vergence_fill_ax(ax, vergence_errors, actions_val, title="action wrt vergence error")
     if save:
-        fig.savefig(plotpath + "/action_wrt_vergence.png")
+        filename = "/action_wrt_vergence_greedy.png" if greedy else "/action_wrt_vergence_sample.png"
+        fig.savefig(plotpath + filename)
     else:
         plt.show()
     plt.close(fig)
 
 
 def reward_wrt_critic_value_fill_ax(ax, critic, reward, title=None):
-    ax.plot(critic, reward, ".")
+    ax.plot(critic, reward, ".", alpha=0.2)
     ax.set_title(title)
     ax.set_xlabel("Critic value")
     ax.set_ylabel("Reward")
@@ -326,37 +370,69 @@ def reward_wrt_critic_value_fill_ax(ax, critic, reward, title=None):
     X = np.linspace(min(critic), max(critic))
     Y = slope * X + intercept
     ax.plot(X, Y, "k")
-    ax.text(min(critic), max(critic) * slope + intercept, "corr: {:.2f}".format(r_value))
+    ax.text(1, 1, "corr: {:.2f}".format(r_value), horizontalalignment="right",
+        transform=ax.transAxes)
 
 
 def reward_wrt_critic_value(data, save=False):
+    data = group_by_trajectory(data)
+    critic, rewards = [], []
+    critic_sum, rewards_sum = [], []
+    n_trajectories = len(data["iteration"])
+    for i in range(n_trajectories):
+        # for iteration0 in data[trajectory]:
+        #     for iteration1 in data[trajectory]:
+        #         if iteration1["iteration"] == iteration0["iteration"] + 1:
+        #             critic.append(iteration0["scale_critic_values"])
+        #             rewards.append(iteration1["scale_rewards"])
+        #             critic_sum.append(iteration0["critic_values"])
+        #             rewards_sum.append(iteration1["total_reward"])
+        critic_trajectory = data["scale_critic_values"][i]
+        critic_sum_trajectory = data["critic_values"][i]
+        rewards_trajectory = data["scale_rewards"][i]
+        reward_total_trajectory = data["total_reward"][i]
+        for j in range(len(critic_trajectory) - 1):
+            critic.append(critic_trajectory[j])
+            rewards.append(rewards_trajectory[j + 1])
+            critic_sum.append(critic_sum_trajectory[j])
+            rewards_sum.append(reward_total_trajectory[j + 1])
     fig = plt.figure()
-    critic = [d["critic_values"] for d in data]
-    rewards = [d["rewards"] for d in data]
-    for r in ratios:
+    rewards = np.array(rewards)
+    critic = np.array(critic)
+    for ratio_index, r in enumerate(ratios):
         ax = fig.add_subplot(2, 4, r)
-        reward_wrt_critic_value_fill_ax(ax, [c[r][0, 0] for c in critic], [rew[r][0] for rew in rewards],
+        reward_wrt_critic_value_fill_ax(ax, critic[:, ratio_index], rewards[:, ratio_index],
                                         title="ratio {}".format(r))
     if save:
-        fig.savefig(plotpath + "/reward_wrd_critic.png")
+        fig.savefig(plotpath + "/reward_wrt_critic.png")
     else:
         plt.show()
     plt.close(fig)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    reward_wrt_critic_value_fill_ax(ax, critic_sum, rewards_sum,
+                                    title="all scales")
+    if save:
+        fig.savefig(plotpath + "/reward_wrt_critic_all_scales.png")
+    else:
+        plt.show()
 
 
 def vergence_error_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    sequence_length = max([d["iteration"] for d in data])
-    data = [d for d in data if d["iteration"] == sequence_length]
-    train_step = [d["train_step"] for d in data]
-    vergence_errors = [vergence_error(d) for d in data]
-    ax.plot(train_step, vergence_errors, ".", alpha=0.8)
+    # sequence_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == sequence_length]
+    data = group_by_trajectory(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    trajectory = data["trajectory"]
+    vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
+    ax.plot(trajectory, vergence_errors, ".", alpha=0.8)
     ax.set_xlabel("episode")
     ax.set_ylabel("vergence error in degrees")
     ax.set_title("vergence error wrt time")
     if save:
-        fig.savefig(plotpath + "/vergence_error_wrt_time.png")
+        fig.savefig(plotpath + "/vergence_error_wrt_time_2.png")
     else:
         plt.show()
     plt.close(fig)
@@ -365,17 +441,20 @@ def vergence_error_episode_end_wrt_episode(data, save=False):
 def mean_abs_vergence_error_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    sequence_length = max([d["iteration"] for d in data])
-    data = [d for d in data if d["iteration"] == sequence_length]
-    train_step = np.array([d["train_step"] for d in data])
-    abs_vergence_errors = np.array([np.abs(vergence_error(d)) for d in data])
-    args = np.argsort(train_step)
-    train_step = train_step[args]
+    # sequence_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == sequence_length]
+    data = group_by_trajectory(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    trajectory = data["trajectory"]
+    vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
+    abs_vergence_errors = np.array(np.abs(vergence_errors))
+    args = np.argsort(trajectory)
+    trajectory = trajectory[args]
     abs_vergence_errors = abs_vergence_errors[args]
     for win in [200, 500, 1000]:
-        mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(train_step < x + win, train_step > x - win))]) for x in train_step]
+        mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(trajectory < x + win, trajectory > x - win))]) for x in trajectory]
         smooth = savgol_filter(mean_abs_vergence_errors, 21, 3)
-        ax.plot(train_step, smooth, "-", lw=2, label="+-{}".format(win))
+        ax.plot(trajectory, smooth, "-", lw=2, label="+-{}".format(win))
     ax.legend()
     ax.set_xlabel("episode")
     ax.set_ylabel("abs vergence error in degrees")
@@ -390,14 +469,16 @@ def mean_abs_vergence_error_episode_end_wrt_episode(data, save=False):
 def vergence_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    sequence_length = max([d["iteration"] for d in data])
-    data = [d for d in data if d["iteration"] == sequence_length]
-    train_step = np.array([d["train_step"] for d in data])
-    vergence = np.array([np.squeeze(d["eyes_position"][-1]) for d in data])
-    args = np.argsort(train_step)
-    train_step = train_step[args]
+    # sequence_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == sequence_length]
+    data = group_by_trajectory(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    trajectory = data["trajectory"]
+    vergence = data["eyes_position"][:, -1]
+    args = np.argsort(trajectory)
+    trajectory = trajectory[args]
     vergence = vergence[args]
-    ax.scatter(train_step, vergence, alpha=0.1)
+    ax.scatter(trajectory, vergence, alpha=0.1)
     ax.set_xlabel("episode")
     ax.set_ylabel("vergence position in degrees")
     ax.set_title("vergence wrt time")
@@ -409,11 +490,14 @@ def vergence_episode_end_wrt_episode(data, save=False):
 
 
 def vergence_wrt_object_distance(data, save=False):
+    data = group_by_trajectory(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    trajectory = data["trajectory"]
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    object_distance = np.array([d["object_distance"] for d in data])
-    vergence = np.array([np.squeeze(d["eyes_position"][-1]) for d in data])
-    rewards = np.array([sum([d["rewards"][r][0] for r in ratios]) for d in data])
+    object_distance = data["object_distance"]
+    vergence = data["eyes_position"][:, -1]
+    rewards = data["total_reward"]
     X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
     correct = -np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * X)) * 2
     ax.scatter(object_distance, vergence, c=rewards, cmap="Greys")
@@ -426,6 +510,64 @@ def vergence_wrt_object_distance(data, save=False):
     else:
         plt.show()
     plt.close(fig)
+
+
+quick_and_dirty = 0
+
+def target_wrt_delta_vergence(data, save=False):
+    data = group_by_trajectory(data)
+    vergence_errors = [[] for i in range(9)]
+    target = [[] for i in range(9)]
+    n_trajectories = len(data["iteration"])
+    for i in range(n_trajectories):
+        for j in range(data["iteration"].shape[1] - 1):
+            action = data["sampled_actions_indices"][i][j, -1]
+            tmp_target = data["total_reward"][i][j + 1] - data["critic_values"][i][j]
+            # tmp_target = data["total_reward"][i][j + 1] - data["total_reward"][i][j]
+            target[action].append(tmp_target)
+            vergence_errors[action].append(vergence_error(data["eyes_position"][i][j], data["object_distance"][i][j]))
+    fig = plt.figure()
+    fig2 = plt.figure()
+    ax2 = fig2.add_subplot(111)
+    all_bin_means = []
+    all_bin_centers = []
+    bins = 50
+    for i in range(9):
+        ax = fig.add_subplot(3, 3, i + 1)
+        ax.set_title("Action id {}".format(i))
+        if len(vergence_errors[i]) > 0:
+            bin_means, bin_edges, binnumber = binned_statistic(vergence_errors[i], target[i], bins=bins)
+            bin_stds, _1, _2 = binned_statistic(vergence_errors[i], target[i], bins=bins, statistic=np.std)
+            bin_width = (bin_edges[1] - bin_edges[0])
+            bin_centers = bin_edges[1:] - bin_width / 2
+            all_bin_means.append(bin_means)
+            all_bin_centers.append(bin_centers)
+            ax.fill_between(bin_centers, bin_means - bin_stds, bin_means + bin_stds, color="b", alpha=0.2)
+            ax.plot(bin_centers, bin_means, "b", linewidth=2.5)
+            where = np.where(bin_means > 0)
+            ax2.plot(bin_centers[where], bin_means[where], linewidth=2.5)
+            ax2.set_ylim([-0.1, 0.4])
+            ax2.set_xlim([-3, 3])
+            ylim = ax.get_ylim()
+            ax.scatter(vergence_errors[i], target[i], alpha=1, s=1, c="g")
+            ax.axvline(action_set[i], c="r")
+            ax.axhline(0, c="k")
+            ax.set_ylim([-0.5, 0.5])
+    n = 0
+    for i in range(9):
+        action = action_set[i]
+        means = np.array([np.interp(action, bin_centers, bin_means) for bin_centers, bin_means in zip(all_bin_centers, all_bin_means)])
+        # print(i, np.argmax(means), np.argmax(means) == i)
+        if np.argmax(means) == i:
+            n += 1
+    print(n)
+    if save:
+        global quick_and_dirty
+        fig.savefig(plotpath + "/target_wrt_delta_vergence.png")
+        fig2.savefig(plotpath + "/target_wrt_delta_vergence_2_{:04d}.png".format(quick_and_dirty))
+        quick_and_dirty += 1
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
@@ -443,11 +585,18 @@ if __name__ == "__main__":
         help="If turned on, saves the plots."
     )
 
+    parser.add_argument(
+        '-n', '--name',
+        type=str,
+        help="Outdir name",
+        default="default"
+    )
+
     args = parser.parse_args()
     path = args.path
 
     ### CONSTANTS
-    plotpath = path + "/../plots/"
+    plotpath = path + "/../plots_{}/".format(args.name)
     ratios = list(range(1, 9))
     n_actions_per_joint = 9
     n = n_actions_per_joint // 2
@@ -457,20 +606,29 @@ if __name__ == "__main__":
     negative = -positive[::-1]
     action_set = np.concatenate([negative, [0], positive])
 
-    data = get_data(path, -1)
+    data = get_data(path, -5)
     if args.save:
         os.mkdir(plotpath)
 
-    ### reward_wrt_vergence_all_scales(data, 1, 4, args.save)
-    ### reward_wrt_vergence(data, 2, 3, args.save)
-    ### critic_wrt_vergence_all_scales(data, 1, 4, args.save)
-    ### critic_wrt_vergence(data, 2, 3, args.save)
-    delta_reward_wrt_delta_vergence(data, args.save)
-    vergence_wrt_object_distance(data, args.save)
+    # reward_wrt_vergence_all_scales(data, 0.5, 5, args.save)
+    # reward_wrt_vergence(data, 0.5, 5, args.save)
+    # critic_wrt_vergence_all_scales(data, 1, 4, args.save)
+    # critic_wrt_vergence(data, 2, 3, args.save)
+
+    # for i in range(100):
+    #     data = get_data(path, i)
+    #     print("flush  ", i)
+    #     target_wrt_delta_vergence(data, args.save)
+
     reward_wrt_critic_value(data, args.save)
-    action_wrt_vergence(data, 0.5, 5, args.save)
+    target_wrt_delta_vergence(data, args.save)
+    action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
+    action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
+    vergence_wrt_object_distance(data, args.save)
+    # delta_reward_wrt_delta_vergence(data, args.save)
 
     data = get_data(path)
+
     vergence_error_episode_end_wrt_episode(data, args.save)
     vergence_episode_end_wrt_episode(data, args.save)
     mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
