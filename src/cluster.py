@@ -95,7 +95,9 @@ class ClusterQueue:
 # ClusterQueue(n_trajectories=1000000, description="gradient_descent_temperature_10.0_alr_1e-4", actor_learning_rate=1e-4, softmax_temperature=10.0, update_per_episode=20, sequence_length=20)
 # ClusterQueue(n_trajectories=1000000, description="gradient_descent_temperature_10.0_alr_1e-5", actor_learning_rate=1e-5, softmax_temperature=10.0, update_per_episode=20, sequence_length=20)
 
-softmax_temperature_decay = np.exp(np.log(2 / 50) / (50000 * 20))
-ClusterQueue(n_trajectories=1000000, description="decay_temperature_end_2.0", actor_learning_rate=1e-5, softmax_temperature=50.0, softmax_temperature_decay=softmax_temperature_decay, update_per_episode=20, sequence_length=20)
-softmax_temperature_decay = np.exp(np.log(5 / 50) / (50000 * 20))
-ClusterQueue(n_trajectories=1000000, description="decay_temperature_end_5.0", actor_learning_rate=1e-5, softmax_temperature=50.0, softmax_temperature_decay=softmax_temperature_decay, update_per_episode=20, sequence_length=20)
+# softmax_temperature_decay = np.exp(np.log(2 / 50) / (50000 * 20))
+# ClusterQueue(n_trajectories=1000000, description="decay_temperature_end_2.0", actor_learning_rate=1e-5, softmax_temperature=50.0, softmax_temperature_decay=softmax_temperature_decay, update_per_episode=20, sequence_length=20)
+# softmax_temperature_decay = np.exp(np.log(5 / 50) / (50000 * 20))
+# ClusterQueue(n_trajectories=1000000, description="decay_temperature_end_5.0", actor_learning_rate=1e-5, softmax_temperature=50.0, softmax_temperature_decay=softmax_temperature_decay, update_per_episode=20, sequence_length=20)
+
+ClusterQueue(n_trajectories=1000000, description="discount_factor_0.3_store_return_ok", actor_learning_rate=1e-5, softmax_temperature=10.0, update_per_episode=20, sequence_length=20)
