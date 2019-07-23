@@ -52,10 +52,10 @@ class quickConf:
 
 
 class Simulator:
-    def __init__(self, names, params):
+    def __init__(self, names, params, port=None):
         self.names = names
         self.vrep_location = params.vrep_location
-        self.startSimulator(params.sim_mode_headless, params.sim_debug)
+        self.startSimulator(params.sim_mode_headless, params.sim_debug, port)
         connectionFailed = self.connect(10)
         if connectionFailed:
             print("Connecting to vRep failed :(")
@@ -66,7 +66,7 @@ class Simulator:
     def __del__(self):
         self.stopSimulator()
 
-    def startSimulator(self, headless = False, debug = False):
+    def startSimulator(self, headless = False, debug = False, port=None):
         cmd = self.vrep_location
         if headless:
             cmd += ' -h'
@@ -76,7 +76,7 @@ class Simulator:
         else:
             cmdDebug = 'FALSE'
             self.debug = False
-        self.vrep_port = self._get_open_port()
+        self.vrep_port = self._get_open_port() if port is None else port
         print('Selected {0} as simulator port.'.format(self.vrep_port))
 
         cmd += ' -gREMOTEAPISERVERSERVICE_{0}_{1}_FALSE'.format(self.vrep_port, cmdDebug)
@@ -169,11 +169,11 @@ class Simulator:
 
 
 class Universe:
-    def __init__(self, gui=False):
+    def __init__(self, gui=False, port=None):
         conf = quickConf()
         if gui:
             conf.sim_mode_headless = False
-        self.sim = Simulator(objectHandles(), conf)
+        self.sim = Simulator(objectHandles(), conf, port=port)
         self.sim.buildHandleDict()
         self.robot = Robot(self.sim, True)
 
@@ -240,8 +240,8 @@ class Robot:
         return retLeft + retRight
 
     def setPanJointPositions(self, vers, verg):
-        self.current_version = vers
-        self.current_vergence = verg
+        self.current_version = float(vers)
+        self.current_vergence = float(verg)
 
         angleLeft = (vers + verg / 2) * np.pi / 180 # VREP Calculates in Rad
         angleRight = (vers - verg / 2) * np.pi / 180
