@@ -17,7 +17,7 @@ def tf_returns(rewards, discount_factor, start=None, axis=-1):
     # start must have the same shape than rewards (besides on the 'axis' dim where it should be 1)
     return_func = get_return_func(discount_factor, axis=axis)
     returns = tf.py_func(return_func, [rewards], rewards.dtype)
-    if start:
+    if start is not None:
         returns += start
     return returns
 
