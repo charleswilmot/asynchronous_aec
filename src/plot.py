@@ -14,6 +14,7 @@ import numpy as np
 import re
 import argparse
 import warnings
+from asynchronous import Conf
 
 
 warnings.filterwarnings("ignore")
@@ -360,7 +361,7 @@ def action_wrt_vergence(data, min_dist, max_dist, greedy=False, save=False):
     plt.close(fig)
 
 
-def reward_wrt_critic_value_fill_ax(ax, critic, reward, title=None):
+def return_wrt_critic_value_fill_ax(ax, critic, reward, title=None):
     ax.plot(critic, reward, ".", alpha=0.2)
     ax.set_title(title)
     ax.set_xlabel("Critic value")
@@ -374,46 +375,70 @@ def reward_wrt_critic_value_fill_ax(ax, critic, reward, title=None):
         transform=ax.transAxes)
 
 
-def reward_wrt_critic_value(data, save=False):
+def to_return_1d(rewards, discount_factor, axis_=-1):
+    ret = np.zeros_like(rewards)
+    prev = 0
+    for i, r in reversed(list(enumerate(rewards))):
+        prev = prev * discount_factor + r
+        ret[i] = prev
+    return ret
+
+
+def to_return(rewards, discount_factor, start=None, axis=-1):
+    returns = np.apply_along_axis(to_return_1d, axis=axis, arr=rewards, discount_factor=discount_factor, axis_=axis)
+    if start is not None:
+        start_shape = np.array(start.shape)
+        rewards_shape = np.array(rewards.shape)
+        assert(
+            rewards.ndim == start.ndim and
+            (start_shape[:axis] == rewards_shape[:axis]).all() and
+            (start_shape[axis + 1:] == rewards_shape[axis + 1:]).all() and
+            start_shape[axis] == 1
+        )
+        gammas = np.zeros(rewards.shape[axis], dtype=np.float32)
+        gammas[:] = discount_factor
+        shape = np.array(rewards.shape)
+        gammas = np.cumprod(gammas)[::-1]
+        shape[:axis] = 1
+        shape[axis + 1:] = 1
+        gammas = gammas.reshape(shape)
+        returns += start * gammas
+    return returns
+
+
+def return_wrt_critic_value(data, discount_factor, save=False):
     data = group_by_trajectory(data)
-    critic, rewards = [], []
-    critic_sum, rewards_sum = [], []
+    critic, returns = [], []
+    critic_sum, returns_sum = [], []
     n_trajectories = len(data["iteration"])
     for i in range(n_trajectories):
-        # for iteration0 in data[trajectory]:
-        #     for iteration1 in data[trajectory]:
-        #         if iteration1["iteration"] == iteration0["iteration"] + 1:
-        #             critic.append(iteration0["scale_critic_values"])
-        #             rewards.append(iteration1["scale_rewards"])
-        #             critic_sum.append(iteration0["critic_values"])
-        #             rewards_sum.append(iteration1["total_reward"])
         critic_trajectory = data["scale_critic_values"][i]
         critic_sum_trajectory = data["critic_values"][i]
-        rewards_trajectory = data["scale_rewards"][i]
-        reward_total_trajectory = data["total_reward"][i]
+        returns_trajectory = to_return(data["scale_rewards"][i], discount_factor, start=critic_trajectory[-1, np.newaxis], axis=0)
+        return_total_trajectory = to_return(data["total_reward"][i], discount_factor, start=critic_sum_trajectory[-1, np.newaxis], axis=0)
         for j in range(len(critic_trajectory) - 1):
             critic.append(critic_trajectory[j])
-            rewards.append(rewards_trajectory[j + 1])
+            returns.append(returns_trajectory[j + 1])
             critic_sum.append(critic_sum_trajectory[j])
-            rewards_sum.append(reward_total_trajectory[j + 1])
+            returns_sum.append(return_total_trajectory[j + 1])
     fig = plt.figure()
-    rewards = np.array(rewards)
+    returns = np.array(returns)
     critic = np.array(critic)
     for ratio_index, r in enumerate(ratios):
         ax = fig.add_subplot(2, 4, r)
-        reward_wrt_critic_value_fill_ax(ax, critic[:, ratio_index], rewards[:, ratio_index],
+        return_wrt_critic_value_fill_ax(ax, critic[:, ratio_index], returns[:, ratio_index],
                                         title="ratio {}".format(r))
     if save:
-        fig.savefig(plotpath + "/reward_wrt_critic.png")
+        fig.savefig(plotpath + "/return_wrt_critic.png")
     else:
         plt.show()
     plt.close(fig)
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    reward_wrt_critic_value_fill_ax(ax, critic_sum, rewards_sum,
+    return_wrt_critic_value_fill_ax(ax, critic_sum, returns_sum,
                                     title="all scales")
     if save:
-        fig.savefig(plotpath + "/reward_wrt_critic_all_scales.png")
+        fig.savefig(plotpath + "/return_wrt_critic_all_scales.png")
     else:
         plt.show()
 
@@ -597,6 +622,9 @@ if __name__ == "__main__":
 
     ### CONSTANTS
     plotpath = path + "/../plots_{}/".format(args.name)
+    with open(path + "/../conf/worker_conf.pkl", "rb") as f:
+        conf = pickle.load(f)
+        discount_factor = conf.discount_factor
     ratios = list(range(1, 9))
     n_actions_per_joint = 9
     n = n_actions_per_joint // 2
@@ -620,7 +648,7 @@ if __name__ == "__main__":
     #     print("flush  ", i)
     #     target_wrt_delta_vergence(data, args.save)
 
-    reward_wrt_critic_value(data, args.save)
+    return_wrt_critic_value(data, discount_factor, args.save)
     target_wrt_delta_vergence(data, args.save)
     action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
     action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
