@@ -100,4 +100,4 @@ class ClusterQueue:
 # softmax_temperature_decay = np.exp(np.log(5 / 50) / (50000 * 20))
 # ClusterQueue(n_trajectories=1000000, description="decay_temperature_end_5.0", actor_learning_rate=1e-5, softmax_temperature=50.0, softmax_temperature_decay=softmax_temperature_decay, update_per_episode=20, sequence_length=20)
 
-ClusterQueue(n_trajectories=1000000, description="discount_factor_0.3_store_return_ok", actor_learning_rate=1e-5, softmax_temperature=10.0, update_per_episode=20, sequence_length=20)
+ClusterQueue(n_trajectories=1000000, description="discount_factor_0.3_restore_model", actor_learning_rate=1e-5, softmax_temperature=10.0, update_per_episode=20, sequence_length=20, discount_factor=0.3, restore_from="../experiments/2019_07_22-12:22:37_mlr1.00e-04_clr1.00e-04_alr1.00e-04_entropy2.00e-01__model_only/checkpoints/01000000/")
