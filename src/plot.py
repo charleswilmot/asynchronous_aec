@@ -344,7 +344,7 @@ def action_wrt_vergence(data, min_dist, max_dist, greedy=False, save=False):
         # tmp[4] = 0
         probs.append(tmp)
         # print("\n")
-    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2), n_actions_per_joint // 2), interpolation="none")
+    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2), n_actions_per_joint // 2), interpolation="none", vmin=0, vmax=1)
     fig.colorbar(im)
     ax.set_title("Action wrt vergence error")
     ax.set_xlabel("vergence error")
@@ -539,15 +539,17 @@ def vergence_wrt_object_distance(data, save=False):
 
 quick_and_dirty = 0
 
-def target_wrt_delta_vergence(data, save=False):
+def target_wrt_delta_vergence(data, discount_factor, save=False):
     data = group_by_trajectory(data)
     vergence_errors = [[] for i in range(9)]
     target = [[] for i in range(9)]
     n_trajectories = len(data["iteration"])
     for i in range(n_trajectories):
+        critic_sum_trajectory = data["critic_values"][i]
+        return_total_trajectory = to_return(data["total_reward"][i], discount_factor, start=critic_sum_trajectory[-1, np.newaxis], axis=0)
         for j in range(data["iteration"].shape[1] - 1):
             action = data["sampled_actions_indices"][i][j, -1]
-            tmp_target = data["total_reward"][i][j + 1] - data["critic_values"][i][j]
+            tmp_target = return_total_trajectory[j + 1] - data["critic_values"][i][j]
             # tmp_target = data["total_reward"][i][j + 1] - data["total_reward"][i][j]
             target[action].append(tmp_target)
             vergence_errors[action].append(vergence_error(data["eyes_position"][i][j], data["object_distance"][i][j]))
@@ -649,7 +651,7 @@ if __name__ == "__main__":
     #     target_wrt_delta_vergence(data, args.save)
 
     return_wrt_critic_value(data, discount_factor, args.save)
-    target_wrt_delta_vergence(data, args.save)
+    target_wrt_delta_vergence(data, discount_factor, args.save)
     action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
     action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
     vergence_wrt_object_distance(data, args.save)
