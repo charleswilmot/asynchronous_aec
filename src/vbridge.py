@@ -370,9 +370,13 @@ class ConstantSpeedScreen(Screen):
         np.random.shuffle(self.textures)
         self.n_textures = self.textures.shape[0]
         super().__init__(simulator, (-2, 0, RESSOURCES.Z_DEFAULT_SCREEN_POS))
+        self.init_constant_speed_objects()
 
     def update_constant_speed_objects(self):
         self.position += self.speeds
+        self.set_spherical_positions(*self.position)
+
+    def put_to_position(self):
         self.set_spherical_positions(*self.position)
 
     def init_constant_speed_objects(self):
@@ -388,7 +392,10 @@ class ConstantSpeedScreen(Screen):
 
     def update_textures(self):
         i = np.random.randint(low=0, high=self.n_textures)
-        self.set_texture(self.textures[i])
+        self.set_texture_by_index(i)
+
+    def set_texture_by_index(self, index):
+        self.set_texture(self.textures[index])
 
     def episode_init(self):
         self.update_textures()
@@ -400,8 +407,13 @@ class ConstantSpeedScreen(Screen):
     def hide(self):
         self.set_positions(-2, 0, RESSOURCES.Z_DEFAULT_SCREEN_POS)
 
+    def set_movement(self, distance, direction, angle, distance_speed, direction_speed, angle_speed):
+        self.position[:] = (distance, direction, angle)
+        self.speeds[:] = (distance_speed, direction_speed, angle_speed)
+
     def _get_distance(self):
         return self.position[0]
+        # return self.getPosition()[0]
 
     distance = property(_get_distance)
 

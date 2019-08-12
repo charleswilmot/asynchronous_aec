@@ -602,6 +602,7 @@ if __name__ == "__main__":
     parser.add_argument(
         'path', metavar="PATH",
         type=str,
+        nargs="+",
         action='store',
         help="Path to the data."
     )
@@ -620,45 +621,56 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    path = args.path
+    paths = args.path
 
-    ### CONSTANTS
-    plotpath = path + "/../plots_{}/".format(args.name)
-    with open(path + "/../conf/worker_conf.pkl", "rb") as f:
-        conf = pickle.load(f)
-        discount_factor = conf.discount_factor
-    ratios = list(range(1, 9))
-    n_actions_per_joint = 9
-    n = n_actions_per_joint // 2
-    mini = 0.28
-    maxi = 0.28 * 2 ** (n - 1)
-    positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-    negative = -positive[::-1]
-    action_set = np.concatenate([negative, [0], positive])
 
-    data = get_data(path, -5)
-    if args.save:
-        os.mkdir(plotpath)
+    for path in paths:
+        print("\n", path, "\n")
+        ### CONSTANTS
+        plotpath = path + "/../plots_{}/".format(args.name)
+        with open(path + "/../conf/worker_conf.pkl", "rb") as f:
+            conf = pickle.load(f)
+            discount_factor = conf.discount_factor
+        ratios = list(range(1, 9))
+        n_actions_per_joint = 9
+        n = n_actions_per_joint // 2
+        mini = 0.28
+        maxi = 0.28 * 2 ** (n - 1)
+        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
+        negative = -positive[::-1]
+        action_set = np.concatenate([negative, [0], positive])
 
-    # reward_wrt_vergence_all_scales(data, 0.5, 5, args.save)
-    # reward_wrt_vergence(data, 0.5, 5, args.save)
-    # critic_wrt_vergence_all_scales(data, 1, 4, args.save)
-    # critic_wrt_vergence(data, 2, 3, args.save)
+        data = get_data(path, -5)
+        if args.save:
+            os.mkdir(plotpath)
 
-    # for i in range(100):
-    #     data = get_data(path, i)
-    #     print("flush  ", i)
-    #     target_wrt_delta_vergence(data, args.save)
+        # reward_wrt_vergence_all_scales(data, 0.5, 5, args.save)
+        # reward_wrt_vergence(data, 0.5, 5, args.save)
+        # critic_wrt_vergence_all_scales(data, 1, 4, args.save)
+        # critic_wrt_vergence(data, 2, 3, args.save)
 
-    return_wrt_critic_value(data, discount_factor, args.save)
-    target_wrt_delta_vergence(data, discount_factor, args.save)
-    action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
-    action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
-    vergence_wrt_object_distance(data, args.save)
-    # delta_reward_wrt_delta_vergence(data, args.save)
+        # for i in range(100):
+        #     data = get_data(path, i)
+        #     print("flush  ", i)
+        #     target_wrt_delta_vergence(data, args.save)
 
-    data = get_data(path)
+        print("return_wrt_critic_value:")
+        return_wrt_critic_value(data, discount_factor, args.save)
+        print("target_wrt_delta_vergence:")
+        target_wrt_delta_vergence(data, discount_factor, args.save)
+        print("action_wrt_vergence:")
+        action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
+        print("action_wrt_vergence:")
+        action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
+        print("vergence_wrt_object_distance:")
+        vergence_wrt_object_distance(data, args.save)
+        # delta_reward_wrt_delta_vergence(data, args.save)
 
-    vergence_error_episode_end_wrt_episode(data, args.save)
-    vergence_episode_end_wrt_episode(data, args.save)
-    mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
+        data = get_data(path)
+
+        print("vergence_error_episode_end_wrt_episode:")
+        vergence_error_episode_end_wrt_episode(data, args.save)
+        print("vergence_episode_end_wrt_episode:")
+        vergence_episode_end_wrt_episode(data, args.save)
+        print("mean_abs_vergence_error_episode_end_wrt_episode:")
+        mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)

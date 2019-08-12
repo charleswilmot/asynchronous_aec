@@ -18,6 +18,42 @@ from PIL import Image
 import vbridge as vb
 import RESSOURCES
 import pickle
+from itertools import cycle, islice
+
+
+dttest_data = np.dtype([
+    ("action_index", (np.int32, 3)),
+    ("action_probability", (np.float32, 3)),
+    ("action_value", (np.float32, 3)),
+    ("critic_value", np.float32),
+    ("total_reconstruction_error", np.float32),
+    ("eye_position", (np.float32, 3)),
+    ("eye_speed", (np.float32, 2)),
+    ("speed_error", (np.float32, 2)),
+    ("vergence_error", np.float32)
+])
+
+
+class ProperDisplay:
+    def __init__(self, data, i, n):
+        self.data = data
+        self.i = i
+        self.n = n
+
+    def __repr__(self):
+        return "chunksize: {} - chunk {}/{}".format(len(self.data), self.i, self.n)
+
+
+def repeatlist(it, count):
+    return islice(cycle(it), count)
+
+
+def _chunks(l, n):
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
+
+def chunks(l, n):
+    return list(_chunks(l, n))
 
 
 def get_textures(path):
@@ -163,6 +199,8 @@ class Worker:
         self.textures = get_textures("/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/")
         self.screen = vb.ConstantSpeedScreen(self.universe.sim, (0.5, 5), 0.0, 0, self.textures)
         self.screen.set_positions(-2, 0, 0)
+        self.tilt_delta = 0.0
+        self.pan_delta = 0.0
 
     def define_scale_inp(self, ratio):
         crop_side_length = 16
@@ -390,9 +428,52 @@ class Worker:
         save_path = self.saver.save(self.sess, path + "/network.ckpt")
         self.pipe.send("{} saved model to {}".format(self.name, save_path))
 
+    def get_current_step(self):
+        self.pipe.send(self.sess.run(self.train_step))
+
     def restore(self, path):
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
+
+    def test_chunks(self, proper_display_of_chunk_of_test_cases):
+        chunk_of_test_cases = proper_display_of_chunk_of_test_cases.data
+        ret = []
+        fetches = {
+            "total_reconstruction_error": self.autoencoder_loss,
+            "critic_value": self.critic_values,
+            "action_probability": self.greedy_actions_prob,
+            "action_index": self.greedy_actions_indices
+        }
+        for test_case in chunk_of_test_cases:
+            vergence_init = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * test_case["object_distance"])) * 2 + test_case["vergence_error"]
+            self.robot.setEyePositions((0, 0, vergence_init))
+            self.screen.set_texture_by_index(test_case["stimulus"])
+            self.screen.set_movement(test_case["object_distance"], 0, 0, 0, test_case["speed_error"][0], test_case["speed_error"][1])
+            self.screen.put_to_position()
+            test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
+            for i in range(test_case["n_iterations"]):
+                eye_position = self.robot.getEyePositions()
+                vergence = eye_position[-1]
+                vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * test_case["object_distance"])) * 2 - vergence
+                # print("vergence_error:  ", vergence_error, "object_distance:    ", test_case["object_distance"], self.screen.distance)
+                left_image, right_image = self.robot.receiveImages()
+                feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
+                data = self.sess.run(fetches, feed_dict)
+                action = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
+                action_prob = [data["action_probability"][jn] for jn in ["tilt", "pan", "vergence"]]
+                test_data[i]["action_index"] = action
+                test_data[i]["action_probability"] = action_prob
+                test_data[i]["action_value"] = (self.action_set_tilt[action[0]], self.action_set_pan[action[1]], self.action_set_vergence[action[2]])
+                test_data[i]["critic_value"] = data["critic_value"]
+                test_data[i]["total_reconstruction_error"] = data["total_reconstruction_error"]
+                test_data[i]["eye_position"] = eye_position
+                test_data[i]["eye_speed"] = (self.tilt_delta, self.pan_delta)
+                test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
+                test_data[i]["vergence_error"] = vergence_error
+                self.apply_action(action)
+            ret.append((test_case, test_data))
+        self.pipe.send(ret)
+        return ret
 
     def play_trajectory(self, greedy=False):
         fetches = self.greedy_actions_indices if greedy else self.sampled_actions_indices
@@ -636,12 +717,14 @@ class Experiment:
         self.checkpointsdir = self.experiment_dir + "/checkpoints"
         self.videodir = self.experiment_dir + "/video"
         self.datadir = self.experiment_dir + "/data"
+        self.testdatadir = self.experiment_dir + "/test_data"
         self.confdir = self.experiment_dir + "/conf"
         if not os.path.exists(self.experiment_dir) or os.listdir(self.experiment_dir) == ['log']:
             os.makedirs(self.experiment_dir, exist_ok=True)
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.videodir)
             os.makedirs(self.datadir)
+            os.makedirs(self.testdatadir)
             os.makedirs(self.confdir)
             os.makedirs(self.checkpointsdir)
 
@@ -710,6 +793,32 @@ class Experiment:
             p.send(("start_training", n_updates))
         for p in self.here_pipes:
             p.recv()
+
+    def get_current_step(self):
+        for p in self.here_pipes:
+            p.send(("get_current_step", ))
+        for p in self.here_pipes:
+            current_step = p.recv()
+        return current_step
+
+    def asynchronously_test(self, test_conf_path, chunks_size=10):
+        # generate list_of_test_cases
+        with open(test_conf_path, "rb") as f:
+            list_of_test_cases = pickle.load(f)["test_cases"]
+        # generate list_of_chunks_of_test_cases
+        list_of_chunks_of_test_cases = chunks(list_of_test_cases, chunks_size)
+        for i, (pipe, chunk_of_test_cases) in enumerate(zip(cycle(self.here_pipes), list_of_chunks_of_test_cases)):
+            pipe.send(("test_chunks", ProperDisplay(chunk_of_test_cases, i + 1, len(list_of_chunks_of_test_cases))))
+        test_data_summary = []
+        for p in repeatlist(self.here_pipes, len(list_of_chunks_of_test_cases)):
+            test_data = p.recv()
+            test_data_summary += test_data
+        # get the current iteration...
+        current_step = self.get_current_step()
+        # store the data
+        path = self.testdatadir + "/{}.pkl".format(current_step)
+        with open(path, "wb")as f:
+            pickle.dump(test_data_summary, f)
 
     def playback(self, n_trajectories, greedy=False):
         for p in self.here_pipes:

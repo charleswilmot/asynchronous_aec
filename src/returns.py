@@ -28,7 +28,7 @@ def tf_returns(rewards, discount_factor, start=None, axis=-1):
         shape = tf.concat([a, b, c], axis=0)
         gammas = tf.fill(shape, discount_factor)
         gammas = tf.cumprod(gammas, axis=axis, reverse=True)
-        returns += start * gammas
+        returns += tf.stop_gradient(start) * gammas
     return returns
 
 
