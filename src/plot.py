@@ -208,7 +208,7 @@ def delta_reward_wrt_delta_vergence(data, save=False):
                 vergence_error_end.append(v1)
                 delta_reward.append(r1 - r0)
     ax = fig.add_subplot(111, facecolor='grey')
-    hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10)
+    hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10, vmin=-1, vmax=1)
     cb = fig.colorbar(hexbin, ax=ax)
     cb.set_label("Delta reward")
     if save:
@@ -344,17 +344,51 @@ def action_wrt_vergence(data, min_dist, max_dist, greedy=False, save=False):
         # tmp[4] = 0
         probs.append(tmp)
         # print("\n")
-    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2), n_actions_per_joint // 2), interpolation="none", vmin=0, vmax=1)
+    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2) - 0.5, n_actions_per_joint // 2 + 0.5), interpolation="none", vmin=0, vmax=1)
     fig.colorbar(im)
     ax.set_title("Action wrt vergence error")
     ax.set_xlabel("vergence error")
     ax.set_ylabel("action")
-    # actions = [d["greedy_actions_indices"]["vergence"][0] for d in data]
-    # actions_val = np.asarray(action_set)[actions]
-    # ax.plot([action_set[0], action_set[-1]], [action_set[-1], action_set[0]], "k-")
-    # action_wrt_vergence_fill_ax(ax, vergence_errors, actions_val, title="action wrt vergence error")
+    ax.plot(action_set, np.arange(-4, 5), "k-", alpha=0.3)
     if save:
         filename = "/action_wrt_vergence_greedy.png" if greedy else "/action_wrt_vergence_sample.png"
+        fig.savefig(plotpath + filename)
+    else:
+        plt.show()
+    plt.close(fig)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    im = ax.imshow(np.log(np.array(probs)[:, ::-1].T + 0.03), extent=(bins[0], bins[-1], -(n_actions_per_joint // 2) - 0.5, n_actions_per_joint // 2 + 0.5), interpolation="none", vmin=-3, vmax=0)
+    fig.colorbar(im)
+    ax.set_title("Action wrt vergence error")
+    ax.set_xlabel("vergence error")
+    ax.set_ylabel("action")
+    ax.plot(action_set, np.arange(-4, 5), "k-", alpha=0.3)
+    if save:
+        filename = "/action_wrt_vergence_greedy_log.png" if greedy else "/action_wrt_vergence_sample_log.png"
+        fig.savefig(plotpath + filename)
+    else:
+        plt.show()
+    plt.close(fig)
+
+
+def preference_for_correct_action(data, scale="all", save=False):
+    fig = plt.figure()
+    data = group_by_trajectory(data)
+    vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
+    if scale == "all":
+        values = data["critic_values_vergence"]
+    else:
+        values = data["scale_values_vergence"][:, :, scale]
+    for i in range(9):
+        ax = fig.add_subplot(3, 3, i + 1)
+        action_value = action_set[i]
+        where = np.where(np.logical_and(vergence_errors[:, :-1] - 0.2 < action_value, action_value < vergence_errors[:, :-1] + 0.2))
+        positions = np.argmax(np.argsort(values[:, 1:][where], axis=1)[::-1] == i, axis=1)
+        ax.hist(positions, bins=range(10))
+    if save:
+        filename = "/preference_for_correct_action_scale_{}.png".format(scale)
         fig.savefig(plotpath + filename)
     else:
         plt.show()
@@ -634,8 +668,8 @@ if __name__ == "__main__":
         ratios = list(range(1, 9))
         n_actions_per_joint = 9
         n = n_actions_per_joint // 2
-        mini = 0.28
-        maxi = 0.28 * 2 ** (n - 1)
+        mini = 90 / 320
+        maxi = 90 / 320 * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
         negative = -positive[::-1]
         action_set = np.concatenate([negative, [0], positive])
@@ -654,16 +688,23 @@ if __name__ == "__main__":
         #     print("flush  ", i)
         #     target_wrt_delta_vergence(data, args.save)
 
-        print("return_wrt_critic_value:")
-        return_wrt_critic_value(data, discount_factor, args.save)
-        print("target_wrt_delta_vergence:")
-        target_wrt_delta_vergence(data, discount_factor, args.save)
+        # print("return_wrt_critic_value:")
+        # return_wrt_critic_value(data, discount_factor, args.save)
+
+        # print("target_wrt_delta_vergence:")
+        # target_wrt_delta_vergence(data, discount_factor, args.save)
+
+        print("preference for correct action")
+        for i in range(8):
+            preference_for_correct_action(data, scale=i, save=args.save)
+        preference_for_correct_action(data, save=args.save)
         print("action_wrt_vergence:")
         action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
         print("action_wrt_vergence:")
         action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
         print("vergence_wrt_object_distance:")
         vergence_wrt_object_distance(data, args.save)
+        # print("v shape")
         # delta_reward_wrt_delta_vergence(data, args.save)
 
         data = get_data(path)

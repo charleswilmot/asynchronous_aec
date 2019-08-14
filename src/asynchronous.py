@@ -18,7 +18,7 @@ from PIL import Image
 import vbridge as vb
 import RESSOURCES
 import pickle
-from itertools import cycle, islice
+from itertools import cycle, islice, product
 
 
 dttest_data = np.dtype([
@@ -129,11 +129,9 @@ def custom_loss(x):
 
 class Conf:
     def __init__(self, args):
-        self.mlr, self.clr, self.alr = args.model_learning_rate, args.critic_learning_rate, args.actor_learning_rate
-        self.softmax_temperature = args.softmax_temperature
-        self.softmax_temperature_decay = args.softmax_temperature_decay
-        self.entropy_reg = args.entropy_reg
-        self.entropy_reg_decay = args.entropy_reg_decay
+        self.mlr, self.clr = args.model_learning_rate, args.critic_learning_rate
+        self.epsilon = args.epsilon
+        self.epsilon_decay = args.epsilon_decay
         self.discount_factor = args.discount_factor
         self.sequence_length = args.sequence_length
         self.update_per_episode = args.update_per_episode
@@ -142,9 +140,8 @@ class Conf:
 
 class Worker:
     def __init__(self, cluster, task_index, pipe, logdir, simulator_port,
-                 model_lr, critic_lr, actor_lr, discount_factor,
-                 entropy_coef, entropy_coef_decay,
-                 softmax_temperature, softmax_temperature_decay,
+                 model_lr, critic_lr, discount_factor,
+                 epsilon_init, epsilon_decay,
                  sequence_length, model_buffer_size, update_per_episode,
                  worker0_display=False):
         self.task_index = task_index
@@ -155,19 +152,17 @@ class Worker:
         self.device = tf.train.replica_device_setter(worker_device=self.name, cluster=cluster)
         self.trajectory_count = tf.Variable(0).assign_add(1)
         self.discount_factor = discount_factor
-        self.entropy_coef = entropy_coef
-        self.entropy_coef_decay = entropy_coef_decay
-        self.softmax_temperature = softmax_temperature
-        self.softmax_temperature_decay = softmax_temperature_decay
+        self.epsilon_init = epsilon_init
+        self.epsilon_decay = epsilon_decay
         self.sequence_length = sequence_length
         self.update_per_episode = update_per_episode
         self.model_lr = model_lr
         self.critic_lr = critic_lr
-        self.actor_lr = actor_lr
         self.buffer = Buffer(size=model_buffer_size)
         self.pipe = pipe
         self.logdir = logdir
         self.n_actions_per_joint = 9
+        self.ratios = list(range(1, 9))
         self.define_networks()
         self.define_actions_sets()
         self.end_episode_data = []
@@ -217,7 +212,7 @@ class Worker:
             shape=scale_uint8.get_shape())
         self.scales_inp[ratio] = scale
 
-    def define_autoencoder(self, ratio, filter_size=4, stride=2):
+    def define_autoencoder_scale(self, ratio, filter_size=4, stride=2):
         inp = self.scales_inp[ratio]
         batch_size = tf.shape(inp)[0]
         conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
@@ -237,11 +232,11 @@ class Worker:
         self.scale_latent[ratio] = tf.reshape(bottleneck, (-1, size))
         self.scale_rec[ratio] = reconstruction
         sub = self.scale_rec[ratio] - target
-        self.scale_losses_patch[ratio] = tf.reduce_mean(sub ** 2, axis=3)
-        self.scale_losses[ratio] = tf.reduce_mean(self.scale_losses_patch[ratio], axis=[1, 2])
-        self.scale_rewards_patch[ratio] = -(self.scale_losses_patch[ratio] - 0.03) / 0.03
-        self.scale_rewards[ratio] = -(self.scale_losses[ratio] - 0.03) / 0.03
-        self.scale_loss[ratio] = tf.reduce_mean(self.scale_losses[ratio])
+        self.patch_recerrs[ratio] = tf.reduce_mean(sub ** 2, axis=3)
+        self.scale_recerrs[ratio] = tf.reduce_mean(self.patch_recerrs[ratio], axis=[1, 2])
+        self.patch_rewards[ratio] = -(self.patch_recerrs[ratio] - 0.03) / 0.03
+        self.scale_rewards[ratio] = -(self.scale_recerrs[ratio] - 0.03) / 0.03
+        self.scale_recerr[ratio] = tf.reduce_mean(self.scale_recerrs[ratio])
         ### Images for tensorboard:
         n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
         left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 6))
@@ -258,153 +253,175 @@ class Worker:
         image_right = tf.concat([left, right], axis=0)
         self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
 
-    def define_critic(self, ratio):
-        ### PATCH LEVEL
+    def define_critic_patch(self, ratio, joint_name):
         inp = tf.stop_gradient(self.scale_latent_conv[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
-        per_patch_critic = tl.conv2d(inp, 1, 1, 1, "valid", activation_fn=None)
-        reward = self.scale_rewards_patch[ratio][1:]
+        patch_values = tl.conv2d(inp, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
+        self.patch_values[joint_name][ratio] = patch_values
+        patch_rewards = self.patch_rewards[ratio][1:]
         with tf.device(self.device):
-            returns = tf_returns(reward, self.discount_factor, start=per_patch_critic[-1, :, :, 0][tf.newaxis], axis=0)
-        self.scale_returns_patch[ratio] = returns
-        self.scale_critic_losses_patch[ratio] = tf.reduce_mean((per_patch_critic[:-1, :, :, 0] - returns) ** 2, axis=1)
-        self.scale_critic_loss_patch[ratio] = tf.reduce_mean(self.scale_critic_losses_patch[ratio])
-        ### SCALE LEVEL
-        size = np.prod(per_patch_critic.get_shape()[1:])
-        inp = tf.concat([tf.stop_gradient(self.scale_latent[ratio]), tf.reshape(per_patch_critic, (-1, size))], axis=1)
+            start = tf.reduce_max(patch_values[-1], axis=-1)[tf.newaxis]
+            patch_returns = tf_returns(patch_rewards, self.discount_factor, start=start, axis=0)
+        self.patch_returns[joint_name][ratio] = patch_returns
+        actions = self.picked_actions[joint_name]
+        # patch_values  40, 7, 7, 9
+        params = tf.transpose(patch_values, perm=[0, 3, 1, 2])
+        # params        40, 9, 7, 7
+        indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)  # 40, 2
+        patch_values_picked_actions = tf.gather_nd(params, indices)  # 40, 9, 7, 7
+        losses = (patch_values_picked_actions[:-1] - patch_returns) ** 2
+        mask = tf.reshape(self.action_mask[joint_name], (-1, 1, 1, self.n_actions_per_joint))
+        stay_the_same_loss = mask * (patch_values[:-1] - tf.stop_gradient(patch_values[:-1])) ** 2
+        size = self.n_actions_per_joint * 7 * 7
+        self.patch_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
+
+    def define_critic_scale(self, ratio, joint_name):
+        size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
+        inp = tf.concat([
+            tf.stop_gradient(self.scale_latent[ratio]),
+            tf.reshape(self.patch_values[joint_name][ratio], (-1, size))
+        ], axis=1)
         # inp = self.scale_latent[ratio]
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
         # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
         # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
         # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
-        fc4 = tl.fully_connected(fc1, 1, activation_fn=None)
-        self.scale_critic_values[ratio] = fc4
-        reward = self.scale_rewards[ratio][1:]
+        scale_values = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=None)
+        self.scale_values[joint_name][ratio] = scale_values
+        scale_rewards = self.scale_rewards[ratio][1:]
         with tf.device(self.device):
-            returns = tf_returns(reward, self.discount_factor, start=fc4[-1][tf.newaxis], axis=0)
-        self.scale_returns[ratio] = returns
-        self.scale_critic_losses[ratio] = tf.reduce_mean((fc4[:-1] - returns) ** 2, axis=1)
-        self.scale_critic_loss[ratio] = tf.reduce_mean(self.scale_critic_losses[ratio])
-        self.scale_critic_loss_total[ratio] = self.scale_critic_loss[ratio] + self.scale_critic_loss_patch[ratio]
+            start = tf.reduce_max(scale_values[-1], axis=-1)[tf.newaxis]
+            scale_returns = tf_returns(scale_rewards, self.discount_factor, start=start, axis=0)
+        self.scale_returns[joint_name][ratio] = scale_returns
+        actions = self.picked_actions[joint_name]
+        indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
+        scale_values_picked_actions = tf.gather_nd(scale_values, indices)
+        losses = (scale_values_picked_actions[:-1] - scale_returns) ** 2
+        mask = self.action_mask[joint_name]
+        stay_the_same_loss = mask * (scale_values[:-1] - tf.stop_gradient(scale_values[:-1])) ** 2
+        size = self.n_actions_per_joint
+        self.scale_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
 
-    def define_actor(self):
-        inp = tf.stop_gradient(self.latent)
-        # inp = self.latent
+    def define_critic_joint(self, joint_name):
+        self.picked_actions[joint_name] = tf.placeholder(shape=(None,), dtype=tf.int32)
+        self.action_mask[joint_name] = tf.one_hot(
+            self.picked_actions[joint_name][:-1],
+            self.n_actions_per_joint,
+            on_value=0.0,
+            off_value=1.0
+        )
+        for ratio in self.ratios:
+            self.define_critic_patch(ratio, joint_name)
+            self.define_critic_scale(ratio, joint_name)
+        inp = tf.concat([tf.stop_gradient(self.latent)] + [self.scale_values[joint_name][r] for r in self.ratios], axis=-1)
+        # inp = tf.stop_gradient(self.latent)
+        fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+        fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
+        critic_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
+        self.critic_values[joint_name] = critic_values
+        with tf.device(self.device):
+            start = tf.reduce_max(self.critic_values[joint_name][-1], axis=-1)[tf.newaxis]
+            self.returns[joint_name] = tf_returns(self.rewards[1:], self.discount_factor, start=start, axis=0)
+        actions = self.picked_actions[joint_name]
+        indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
+        critic_values_picked_actions = tf.gather_nd(critic_values, indices)
+        losses = (critic_values_picked_actions[:-1] - self.returns[joint_name]) ** 2
+        mask = self.action_mask[joint_name]
+        stay_the_same_loss = mask * (critic_values[:-1] - tf.stop_gradient(critic_values[:-1])) ** 2
+        self.critic_loss[joint_name] = tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)
+        self.critic_loss_all_levels[joint_name] = self.critic_loss[joint_name]
+        for ratio in self.ratios:
+            self.critic_loss_all_levels[joint_name] += self.patch_loss[joint_name][ratio]
+            self.critic_loss_all_levels[joint_name] += self.scale_loss[joint_name][ratio]
+        ### ACTIONS:
+        self.greedy_actions_indices[joint_name] = tf.cast(tf.argmax(self.critic_values[joint_name], axis=1), dtype=tf.int32)
+        shape = tf.shape(self.greedy_actions_indices[joint_name])
+        condition = tf.greater(tf.random_uniform(shape=shape), self.epsilon)
+        random = tf.random_uniform(shape=shape, maxval=self.n_actions_per_joint, dtype=tf.int32)
+        self.sampled_actions_indices[joint_name] = tf.where(condition, x=self.greedy_actions_indices[joint_name], y=random)
+
+    def define_critic(self):
+        # done once for every joint
         self.picked_actions = {}
-        self.logits = {}
-        self.probs = {}
-        self.distributions = {}
-        self.sampled_actions_indices = {}
+        self.action_mask = {}
+        self.patch_values = {}
+        self.patch_returns = {}
+        self.patch_loss = {}
+        self.scale_values = {}
+        self.scale_returns = {}
+        self.scale_loss = {}
+        self.critic_values = {}
+        self.returns = {}
+        self.critic_loss = {}
+        self.critic_loss_all_levels = {}
         self.greedy_actions_indices = {}
-        self.greedy_actions_prob = {}
-        self.log_prob_picked_actions = {}
-        self.entropies = {}
-        self.actors_losses = {}
-        self.entropy_coef = tf.Variable(self.entropy_coef, trainable=False)
-        self.softmax_temperature = tf.Variable(self.softmax_temperature, trainable=False)
-        self.entropy_coef_update = self.entropy_coef.assign(self.entropy_coef * self.entropy_coef_decay)
-        self.softmax_temperature_update = self.softmax_temperature.assign(self.softmax_temperature * self.softmax_temperature_decay)
-        self.actors_targets = tf.stop_gradient(self.rewards[1:] - self.critic_values[:-1, 0])
+        self.sampled_actions_indices = {}
+        self.critic_loss_all_levels_all_joints = 0
         for joint_name in ["tilt", "pan", "vergence"]:
-            fc1 = tl.fully_connected(inp, 200, activation_fn=tf.tanh)
-            # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
-            # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
-            # fc4 = tl.fully_connected(fc3, self.n_actions_per_joint, activation_fn=lrelu)
-            # fc4 = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=tf.tanh)
-            fc4 = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=None)
-            self.picked_actions[joint_name] = tf.placeholder(shape=(None, 1), dtype=tf.int32)
-            self.logits[joint_name] = fc4 / self.softmax_temperature
-            self.probs[joint_name] = tf.nn.softmax(self.logits[joint_name])
-            self.distributions[joint_name] = tf.distributions.Categorical(probs=self.probs[joint_name])
-            # self.distributions[joint_name] = tf.distributions.Categorical(logits=self.logits[joint_name])
-            self.sampled_actions_indices[joint_name] = self.distributions[joint_name].sample()
-            self.greedy_actions_indices[joint_name] = tf.argmax(self.logits[joint_name], axis=1)
-            self.greedy_actions_prob[joint_name] =  \
-                self.distributions[joint_name].prob(self.greedy_actions_indices[joint_name])
-            self.log_prob_picked_actions[joint_name] = \
-                self.distributions[joint_name].log_prob(self.picked_actions[joint_name][:, 0])[:-1]
-            self.entropies[joint_name] = self.distributions[joint_name].entropy()[:-1]
-            self.actors_losses[joint_name] = tf.reduce_mean(
-                -self.log_prob_picked_actions[joint_name] * self.actors_targets -
-                self.entropy_coef * self.entropies[joint_name])
-        # self.actor_loss = \
-        #     sum([self.actors_losses[joint_name] for joint_name in ["tilt", "pan", "vergence"]])
-        self.actor_loss = sum(self.actors_losses.values())
+            # done once per joint
+            self.patch_values[joint_name] = {}
+            self.patch_returns[joint_name] = {}
+            self.patch_loss[joint_name] = {}
+            self.scale_values[joint_name] = {}
+            self.scale_returns[joint_name] = {}
+            self.scale_loss[joint_name] = {}
+            self.define_critic_joint(joint_name)
+            self.critic_loss_all_levels_all_joints += self.critic_loss_all_levels[joint_name]
+
+    def define_inps(self):
+        self.scales_inp = {}
+        for ratio in self.ratios:
+            self.define_scale_inp(ratio)
+
+    def define_autoencoder(self):
+        self.scale_latent = {}
+        self.scale_latent_conv = {}
+        self.scale_rec = {}
+        self.patch_recerrs = {}
+        self.patch_rewards = {}
+        self.scale_recerrs = {}
+        self.scale_rewards = {}
+        self.scale_recerr = {}
+        self.scale_tensorboard_images = {}
+        for ratio in self.ratios:
+            self.define_autoencoder_scale(ratio, filter_size=4, stride=2)
+        self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
+        self.autoencoder_loss = sum([self.scale_recerr[r] for r in self.ratios])
+        self.rewards = sum([self.scale_rewards[r] for r in self.ratios]) / len(self.ratios)
+
+    def define_epsilon(self):
+        self.epsilon = tf.Variable(self.epsilon_init)
+        self.epsilon_update = self.epsilon.assign(self.epsilon * self.epsilon_decay)
 
     def define_networks(self):
         self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
         self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
         self.cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
-        ### autoencoder
-        self.scales_inp = {}
-        self.scale_latent = {}
-        self.scale_latent_conv = {}
-        self.scale_rec = {}
-        self.scale_losses_patch = {}
-        self.scale_rewards_patch = {}
-        self.scale_losses = {}
-        self.scale_rewards = {}
-        self.scale_loss = {}
-        self.scale_tensorboard_images = {}
-        self.ratios = list(range(1, 9))
-        for ratio in self.ratios:
-            self.define_scale_inp(ratio)
-            self.define_autoencoder(ratio, filter_size=4, stride=2)
-        self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
-        self.autoencoder_loss = sum([self.scale_loss[r] for r in self.ratios])
-        self.rewards = sum([self.scale_rewards[r] for r in self.ratios]) / len(self.ratios)
-        ### critic
-        self.scale_critic_losses_patch = {}
-        self.scale_critic_loss_patch = {}
-        self.scale_returns_patch = {}
-        self.scale_critic_values = {}
-        self.scale_critic_losses = {}
-        self.scale_critic_loss = {}
-        self.scale_returns = {}
-        self.scale_critic_loss_total = {}
-        for ratio in self.ratios:
-            self.define_critic(ratio)
-        inp = tf.concat([tf.stop_gradient(self.latent)] + [self.scale_critic_values[r] for r in self.ratios], axis=-1)
-        # inp = tf.stop_gradient(self.latent)
-        fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
-        fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
-        self.critic_values = tl.fully_connected(fc2, 1, activation_fn=None)
-        with tf.device(self.device):
-            self.returns = tf_returns(self.rewards[1:], self.discount_factor, start=self.critic_values[-1][tf.newaxis], axis=0)
-        self.critic_loss_global = tf.reduce_mean((self.critic_values[:-1] - self.returns) ** 2)
-        self.critic_loss = sum([self.scale_critic_loss_total[r] for r in self.ratios]) + self.critic_loss_global
-        ### actor
-        self.define_actor()
+        ### graph definitions:
+        self.define_inps()
+        self.define_autoencoder()
+        self.define_epsilon()
+        self.define_critic()
         ### summaries
         summary_loss = tf.summary.scalar("/autoencoders/loss", self.autoencoder_loss)
-        summary_critic_loss = tf.summary.scalar("/critic/loss", self.critic_loss)
-        summary_scale_critic_loss = [tf.summary.scalar("/critic/ratio_{}".format(r), self.scale_critic_loss[r]) for r in self.ratios]
-        summary_actor_loss = tf.summary.scalar("/actor/loss", self.actor_loss)
-        summary_per_actor_loss = [tf.summary.scalar("/actor/loss_{}".format(jn), self.actors_losses[jn]) for jn in ["tilt", "pan", "vergence"]]
-        summary_per_actor_logits = [tf.summary.scalar("/actor/logits_{}".format(jn), self.logits[jn][0, 4]) for jn in ["tilt", "pan", "vergence"]]
-        summary_per_actor_entropy = [tf.summary.scalar("/actor/entropy_{}".format(jn), tf.reduce_mean(self.entropies[jn])) for jn in ["tilt", "pan", "vergence"]]
-        summary_per_actor_max_prob = [tf.summary.scalar("/actor/max_prob_{}".format(jn), tf.reduce_mean(self.greedy_actions_prob[jn])) for jn in ["tilt", "pan", "vergence"]]
+        summary_per_joint = [tf.summary.scalar("/critic/{}".format(jn), self.critic_loss[jn]) for jn in ["tilt", "pan", "vergence"]]
+        summary_critic_loss = tf.summary.scalar("/critic/loss", self.critic_loss_all_levels_all_joints)
+        summary_scale_critic_loss = [tf.summary.scalar("/critic/{}_ratio_{}".format(jn, r), self.scale_loss[jn][r]) for jn, r in product(["tilt", "pan", "vergence"], self.ratios)]
         summary_images = [tf.summary.image("ratio_{}".format(r), self.scale_tensorboard_images[r], max_outputs=1) for r in self.ratios]
         self.summary = tf.summary.merge(
-            [summary_loss, summary_critic_loss, summary_actor_loss] +
-            summary_images +
+            [summary_loss, summary_critic_loss] +
+            summary_per_joint +
             summary_scale_critic_loss +
-            summary_per_actor_loss +
-            summary_per_actor_logits +
-            summary_per_actor_entropy +
-            summary_per_actor_max_prob)
+            summary_images
+        )
+        ### Ops
         self.train_step = tf.Variable(0, dtype=tf.int32)
         self.train_step_inc = self.train_step.assign_add(1, use_locking=True)
         self.optimizer_autoencoder = tf.train.AdamOptimizer(self.model_lr, use_locking=True)
         self.optimizer_critic = tf.train.AdamOptimizer(self.critic_lr, use_locking=True)
-        self.optimizer_actor = tf.train.AdamOptimizer(self.actor_lr, use_locking=True)
-        # self.optimizer_actor = tf.train.GradientDescentOptimizer(self.actor_lr, use_locking=True)
-        # self.optimizer_actor = tf.train.RMSPropOptimizer(self.actor_lr / 100, decay=0.99, use_locking=True)
-        # self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss + 10.0 * self.actor_loss + .025 * self.critic_loss)
         self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss)
-        self.train_op_critic = self.optimizer_critic.minimize(self.critic_loss)
-        self.train_op_actor = self.optimizer_actor.minimize(self.actor_loss)
-        self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic, self.train_op_actor])
+        self.train_op_critic = self.optimizer_critic.minimize(self.critic_loss_all_levels_all_joints)
+        self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic])
 
     def wait_for_variables_initialization(self):
         while len(self.sess.run(tf.report_uninitialized_variables())) > 0:
@@ -441,7 +458,6 @@ class Worker:
         fetches = {
             "total_reconstruction_error": self.autoencoder_loss,
             "critic_value": self.critic_values,
-            "action_probability": self.greedy_actions_prob,
             "action_index": self.greedy_actions_indices
         }
         for test_case in chunk_of_test_cases:
@@ -460,9 +476,7 @@ class Worker:
                 feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                 data = self.sess.run(fetches, feed_dict)
                 action = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
-                action_prob = [data["action_probability"][jn] for jn in ["tilt", "pan", "vergence"]]
                 test_data[i]["action_index"] = action
-                test_data[i]["action_probability"] = action_prob
                 test_data[i]["action_value"] = (self.action_set_tilt[action[0]], self.action_set_pan[action[1]], self.action_set_vergence[action[2]])
                 test_data[i]["critic_value"] = data["critic_value"]
                 test_data[i]["total_reconstruction_error"] = data["total_reconstruction_error"]
@@ -476,20 +490,19 @@ class Worker:
         return ret
 
     def play_trajectory(self, greedy=False):
-        fetches = self.greedy_actions_indices if greedy else self.sampled_actions_indices
+        fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards
         self.reset_env()
         mean = 0
         for iteration in range(self.sequence_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-            ret = self.sess.run(fetches, feed_dict)
-            self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+            ret, reward = self.sess.run(fetches, feed_dict)
             object_distance = self.screen.distance
             vergence = self.robot.getEyePositions()[-1]
             vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
             mean += np.abs(vergence_error)
-            print("vergence error: {:.4f}".format(vergence_error), end="\n")
-        # print("")
+            print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward[0]), end="\n")
+            self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
         print("mean abs vergence error: {:.4f}".format(mean / self.sequence_length))
 
     def get_trajectory(self):
@@ -506,7 +519,7 @@ class Worker:
             "total_reward": self.rewards,
             "greedy_actions_indices": self.greedy_actions_indices,
             "sampled_actions_indices": self.sampled_actions_indices,
-            "scale_critic_values": self.scale_critic_values,
+            "scale_values": self.scale_values,
             "critic_values": self.critic_values
         }
         self.reset_env()
@@ -539,8 +552,12 @@ class Worker:
             "scale_rewards": np.squeeze(np.array([ret["scale_reward"][ratio] for ratio in self.ratios])),
             "greedy_actions_indices": np.squeeze(np.array([ret["greedy_actions_indices"][k] for k in ["tilt", "pan", "vergence"]])),
             "sampled_actions_indices": np.squeeze(np.array([ret["sampled_actions_indices"][k] for k in ["tilt", "pan", "vergence"]])),
-            "scale_critic_values": np.squeeze(np.array([ret["scale_critic_values"][ratio] for ratio in self.ratios])),
-            "critic_values": np.squeeze(np.array(ret["critic_values"])),
+            "scale_values_tilt": np.squeeze(np.array([ret["scale_values"]["tilt"][ratio] for ratio in self.ratios])),
+            "scale_values_pan": np.squeeze(np.array([ret["scale_values"]["pan"][ratio] for ratio in self.ratios])),
+            "scale_values_vergence": np.squeeze(np.array([ret["scale_values"]["vergence"][ratio] for ratio in self.ratios])),
+            "critic_values_tilt": np.squeeze(np.array(ret["critic_values"]["tilt"])),
+            "critic_values_pan": np.squeeze(np.array(ret["critic_values"]["pan"])),
+            "critic_values_vergence": np.squeeze(np.array(ret["critic_values"]["vergence"])),
             "object_distance": np.squeeze(np.array(object_distance)),
             "eyes_position": np.squeeze(np.array(eyes_position)),
             "eyes_speed": np.squeeze(np.array(eyes_speed))
@@ -621,25 +638,23 @@ class Worker:
         transitions = self.buffer.batch(self.update_per_episode)
         for states, actions in transitions:
             fetches = {
-                "ops": [self.train_op, self.entropy_coef_update, self.softmax_temperature_update],
+                "ops": [self.train_op, self.epsilon_update],
                 "summary": self.summary,
                 "step": self.train_step_inc,
                 "autoencoder_loss": self.autoencoder_loss,
-                "softmax_temperature": self.softmax_temperature,
-                "entropy_coef": self.entropy_coef
+                "epsilon": self.epsilon
             }
             feed_dict = {self.scales_inp[r]: [s[r] for s in states] for r in self.ratios}
             for jn in ["tilt", "pan", "vergence"]:
-                feed_dict[self.picked_actions[jn]] = [a[jn] for a in actions]
+                feed_dict[self.picked_actions[jn]] = [a[jn][0] for a in actions]
             ret = self.sess.run(fetches, feed_dict=feed_dict)
-            if self._update_number % 100 == 0:
+            if self._update_number % 20 == 0:
                 self.summary_writer.add_summary(ret["summary"], global_step=ret["step"])
-            print("{} update {}\tautoencoder loss:  {:6.3f}\t\ttemperature {:.2f}\tentropy {:.2f}".format(
+            print("{} update {}\tautoencoder loss:  {:6.3f}\t\tepsilon {:.2f}".format(
                 self.name,
                 ret["step"],
                 ret["autoencoder_loss"],
-                ret["softmax_temperature"],
-                ret["entropy_coef"]))
+                ret["epsilon"]))
             self._update_number += 1
         return ret["step"]
 
@@ -752,12 +767,9 @@ class Experiment:
         worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, self.ports[task_index],
             self.worker_conf.mlr,
             self.worker_conf.clr,
-            self.worker_conf.alr,
             self.worker_conf.discount_factor,
-            self.worker_conf.entropy_reg,
-            self.worker_conf.entropy_reg_decay,
-            self.worker_conf.softmax_temperature,
-            self.worker_conf.softmax_temperature_decay,
+            self.worker_conf.epsilon,
+            self.worker_conf.epsilon_decay,
             self.worker_conf.sequence_length,
             self.worker_conf.buffer_size,
             self.worker_conf.update_per_episode,
@@ -868,19 +880,15 @@ class Experiment:
 
 default_mlr = 1e-4
 default_clr = 1e-4
-default_alr = 1e-4
-default_er = 2e-1
 
 
-def make_experiment_path(date=None, mlr=None, clr=None, alr=None, er=None, description=None):
-    date = date if date else time.strftime("%Y_%m_%d-%H:%M:%S", time.localtime())
+def make_experiment_path(date=None, mlr=None, clr=None, description=None):
+    date = date if date else time.strftime("%Y_%m_%d-%H.%M.%S", time.localtime())
     mlr = mlr if mlr else default_mlr
     clr = clr if clr else default_clr
-    alr = alr if alr else default_alr
-    er = er if er else default_er
     description = ("__" + description) if description else ""
-    experiment_dir = "../experiments/{}_mlr{:.2e}_clr{:.2e}_alr{:.2e}_entropy{:.2e}{}".format(
-        date, mlr, clr, alr, er, description)
+    experiment_dir = "../experiments/{}_mlr{:.2e}_clr{:.2e}{}".format(
+        date, mlr, clr, description)
     return experiment_dir
 
 
@@ -975,13 +983,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-alr', '--actor-learning-rate',
-        type=float,
-        default=default_alr,
-        help="actor learning rate."
-    )
-
-    parser.add_argument(
         '-df', '--discount-factor',
         type=float,
         default=0,
@@ -989,31 +990,17 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-er', '--entropy-reg',
+        '-eps', '--epsilon',
         type=float,
-        default=default_er,
-        help="Entropy regularizer."
+        default=0.05,
+        help="Initial value for epsilon."
     )
 
     parser.add_argument(
-        '-erd', '--entropy-reg-decay',
+        '-epsd', '--epsilon-decay',
         type=float,
         default=1.0,
-        help="Entropy regularizer decay."
-    )
-
-    parser.add_argument(
-        '-st', '--softmax-temperature',
-        type=float,
-        default=10.0,
-        help="Temperature of the softmax sampling."
-    )
-
-    parser.add_argument(
-        '-std', '--softmax-temperature-decay',
-        type=float,
-        default=1.0,
-        help="Decay for the temperature of the softmax sampling."
+        help="Decay for epsilon."
     )
 
     args = parser.parse_args()
@@ -1022,8 +1009,6 @@ if __name__ == "__main__":
         experiment_dir = make_experiment_path(
             mlr=args.model_learning_rate,
             clr=args.critic_learning_rate,
-            alr=args.actor_learning_rate,
-            er=args.entropy_reg,
             description=args.description)
     else:
         experiment_dir = args.experiment_path

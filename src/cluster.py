@@ -25,11 +25,8 @@ possible_values = \
 class ClusterQueue:
     def __init__(self, **kwargs):
         experiment_path = make_experiment_path(
-            date=time.strftime("%Y_%m_%d-%H:%M:%S", time.localtime()),
             mlr=kwargs["model_learning_rate"] if "model_learning_rate" in kwargs else None,
             clr=kwargs["critic_learning_rate"] if "critic_learning_rate" in kwargs else None,
-            alr=kwargs["actor_learning_rate"] if "actor_learning_rate" in kwargs else None,
-            er=kwargs["entropy_reg"] if "entropy_reg" in kwargs else None,
             description=kwargs["description"])
         os.mkdir(experiment_path)
         os.mkdir(experiment_path + "/log")
@@ -52,6 +49,9 @@ class ClusterQueue:
         return " {} {}".format(flag, v)
 
 
+ClusterQueue(n_trajectories=1000000, n_workers=25, description="DQN_low_gamma_high_mlr_high_epsilon", critic_learning_rate=1e-4, model_learning_rate=1e-4, discount_factor=0.1, update_per_episode=10, sequence_length=10, epsilon=0.25)
+
+# ClusterQueue(n_trajectories=1000000, description="DQN_first_attempt", critic_learning_rate=1e-8, discount_factor=0.3, update_per_episode=5, sequence_length=20)
 # ClusterQueue(n_trajectories=500000, description="replicate_after_code_update")
 # ClusterQueue(n_trajectories=500000, description="shorter_episodes_10", sequence_length=10)
 # ClusterQueue(n_trajectories=500000, description="shorter_episodes_20", sequence_length=20)
@@ -67,7 +67,6 @@ class ClusterQueue:
 # ClusterQueue(n_trajectories=500000, description="tune_entropy_reg_0.4", entropy_reg=0.4)
 # ClusterQueue(n_trajectories=500000, description="tune_entropy_reg_0.5", entropy_reg=0.5)
 # ClusterQueue(n_trajectories=500000, description="tune_actor_learning_rate_-6", actor_learning_rate=1e-6)
-# ClusterQueue(n_trajectories=1000000, description="tune_temperature_0.1", actor_learning_rate=1e-5, softmax_temperature=0.1, update_per_episode=20, sequence_length=20)
 # ClusterQueue(n_trajectories=1000000, description="tune_temperature_1.0", actor_learning_rate=1e-5, softmax_temperature=1.0, update_per_episode=20, sequence_length=20)
 # ClusterQueue(n_trajectories=1000000, description="tune_temperature_5.0", actor_learning_rate=1e-5, softmax_temperature=5.0, update_per_episode=20, sequence_length=20)
 # ClusterQueue(n_trajectories=1000000, description="tune_temperature_10.0", actor_learning_rate=1e-5, softmax_temperature=10.0, update_per_episode=20, sequence_length=20)
@@ -119,49 +118,49 @@ class ClusterQueue:
 #     entropy_reg=0.1
 # )
 
-ClusterQueue(
-    n_trajectories=3000000,
-    description="discount_factor_0.3_entropy_0.01_temp_20",
-    actor_learning_rate=1e-5,
-    update_per_episode=20,
-    sequence_length=20,
-    discount_factor=0.3,
-    softmax_temperature=20.0,
-    entropy_reg=0.01
-)
-
-ClusterQueue(
-    n_trajectories=3000000,
-    description="discount_factor_0.3_entropy_0.02_temp_20",
-    actor_learning_rate=1e-5,
-    update_per_episode=20,
-    sequence_length=20,
-    discount_factor=0.3,
-    softmax_temperature=20.0,
-    entropy_reg=0.02
-)
-
-ClusterQueue(
-    n_trajectories=3000000,
-    description="discount_factor_0.3_entropy_0.1_temp_20",
-    actor_learning_rate=1e-5,
-    update_per_episode=20,
-    sequence_length=20,
-    discount_factor=0.3,
-    softmax_temperature=20.0,
-    entropy_reg=0.1
-)
-
-ClusterQueue(
-    n_trajectories=3000000,
-    description="discount_factor_0.3_entropy_0.15_temp_20",
-    actor_learning_rate=1e-5,
-    update_per_episode=20,
-    sequence_length=20,
-    discount_factor=0.3,
-    softmax_temperature=20.0,
-    entropy_reg=0.15
-)
+# ClusterQueue(
+#     n_trajectories=3000000,
+#     description="discount_factor_0.3_entropy_0.01_temp_20",
+#     actor_learning_rate=1e-5,
+#     update_per_episode=20,
+#     sequence_length=20,
+#     discount_factor=0.3,
+#     softmax_temperature=20.0,
+#     entropy_reg=0.01
+# )
+#
+# ClusterQueue(
+#     n_trajectories=3000000,
+#     description="discount_factor_0.3_entropy_0.02_temp_20",
+#     actor_learning_rate=1e-5,
+#     update_per_episode=20,
+#     sequence_length=20,
+#     discount_factor=0.3,
+#     softmax_temperature=20.0,
+#     entropy_reg=0.02
+# )
+#
+# ClusterQueue(
+#     n_trajectories=3000000,
+#     description="discount_factor_0.3_entropy_0.1_temp_20",
+#     actor_learning_rate=1e-5,
+#     update_per_episode=20,
+#     sequence_length=20,
+#     discount_factor=0.3,
+#     softmax_temperature=20.0,
+#     entropy_reg=0.1
+# )
+#
+# ClusterQueue(
+#     n_trajectories=3000000,
+#     description="discount_factor_0.3_entropy_0.15_temp_20",
+#     actor_learning_rate=1e-5,
+#     update_per_episode=20,
+#     sequence_length=20,
+#     discount_factor=0.3,
+#     softmax_temperature=20.0,
+#     entropy_reg=0.15
+# )
 
 # ClusterQueue(
 #     n_trajectories=1000000,
