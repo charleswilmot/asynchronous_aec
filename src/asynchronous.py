@@ -34,6 +34,27 @@ dttest_data = np.dtype([
 ])
 
 
+anaglyph_matrix = np.array([
+    [0.299, 0    , 0    ],
+    [0.587, 0    , 0    ],
+    [0.114, 0    , 0    ],
+    [0    , 0.299, 0.299],
+    [0    , 0.587, 0.587],
+    [0    , 0.114, 0.114],
+    ])
+
+
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number):
+    image = np.matmul(np.concatenate([left_image, right_image], axis=-1), anaglyph_matrix).astype(np.uint8)
+    image = Image.fromarray(image)
+    drawer = ImageDraw.Draw(image)
+    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
+        object_distance, vergence_error, episode_number, total_episode_number
+    )
+    drawer.text((20,15), string, fill=(255,255,0))
+    return np.array(image, dtype=np.uint8)
+
+
 class ProperDisplay:
     def __init__(self, data, i, n):
         self.data = data
@@ -671,6 +692,29 @@ class Worker:
             print("{} trajectory {}/{}".format(self.name, i, n_trajectories))
         self.pipe.send("{} going IDLE".format(self.name))
 
+    def run_video(self, path, n_sequences, training=False):
+        fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
+        print("{} will store the video under {}".format(self.name, path))
+        with get_writer(path, fps=25, format="mp4") as writer:
+            for sequence_number in range(n_sequences):
+                print("{} trajectory {}/{}".format(self.name, sequence_number + 1, n_sequences))
+                self.reset_env()
+                for iteration in range(self.sequence_length):
+                    left_image, right_image = self.robot.receiveImages()
+                    object_distance = self.screen.distance
+                    vergence = self.robot.getEyePositions()[-1]
+                    vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
+                    frame = make_frame(left_image, right_image, object_distance, vergence_error, sequence_number + 1, n_sequences)
+                    writer.append_data(frame)
+                    if iteration == 0:
+                        for i in range(24):
+                            writer.append_data(frame)
+                    feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
+                    ret = self.sess.run(fetches, feed_dict)
+                    self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+                    print("vergence error: {:.4f}".format(vergence_error))
+        self.pipe.send("{} going IDLE".format(self.name))
+
 
 def get_n_ports(n, start_port=19000):
     def is_port_in_use(port):
@@ -850,10 +894,11 @@ class Experiment:
         self.here_pipes[0].send(("save", path))
         print(self.here_pipes[0].recv())
 
-    # def save_video(self, name, n_sequences, training=True):
-    #     path = self.videodir + "/{}.mp4".format(name)
-    #     self.here_pipes[0].send(("run_video", path, n_sequences, training))
-    #     print(self.here_pipes[0].recv())
+    def save_video(self, name, n_sequences, training=False, outpath=None):
+        path = self.videodir if outpath is None else outpath
+        path += "/{}.mp4".format(name)
+        self.here_pipes[0].send(("run_video", path, n_sequences, training))
+        print(self.here_pipes[0].recv())
 
     def restore_model(self, path):
         self.here_pipes[0].send(("restore", path))
