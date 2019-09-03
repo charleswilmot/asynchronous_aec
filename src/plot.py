@@ -1,11 +1,10 @@
-from scipy.stats import binned_statistic
 from numpy import ma
 from matplotlib import cbook
 from matplotlib.cm import seismic
 from matplotlib.colors import ListedColormap, Normalize
 from collections import defaultdict
 import RESSOURCES
-from scipy.stats import linregress, gaussian_kde
+from scipy.stats import linregress, gaussian_kde, binned_statistic
 from scipy.signal import savgol_filter
 import os
 import pickle
