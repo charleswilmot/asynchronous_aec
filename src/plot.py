@@ -430,7 +430,9 @@ def preference_for_correct_action(data, scale="all", save=False):
     for i in range(9):
         ax = fig.add_subplot(3, 3, i + 1)
         action_value = action_set[i]
-        where = np.where(np.logical_and(vergence_errors[:, :-1] - 0.2 < action_value, action_value < vergence_errors[:, :-1] + 0.2))
+        diff_with_prev = -action_set[0] if i == 0 else action_set[i] - action_set[i - 1]
+        diff_with_next =  action_set[8] if i == 8 else action_set[i + 1] - action_set[i]
+        where = np.where(np.logical_and(vergence_errors[:, :-1] < action_value + diff_with_next / 2, action_value - diff_with_prev / 2 < vergence_errors[:, :-1]))
         positions = np.argmax(np.argsort(values[:, 1:][where], axis=1)[::-1] == i, axis=1)
         ax.hist(positions, bins=range(10))
     if save:
@@ -532,7 +534,7 @@ def vergence_error_episode_end_wrt_episode(data, save=False):
     data = {k: v[:, -1] for k, v in data.items()}
     trajectory = data["trajectory"]
     vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
-    ax.plot(trajectory, vergence_errors, ".", alpha=0.8)
+    ax.plot(trajectory, vergence_errors, ".", alpha=0.05)
     ax.set_xlabel("episode")
     ax.set_ylabel("vergence error in degrees")
     ax.set_title("vergence error wrt time")
@@ -556,13 +558,15 @@ def mean_abs_vergence_error_episode_end_wrt_episode(data, save=False):
     args = np.argsort(trajectory)
     trajectory = trajectory[args]
     abs_vergence_errors = abs_vergence_errors[args]
-    for win in [200, 500, 1000]:
+    for win in [500]:
         mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(trajectory < x + win, trajectory > x - win))]) for x in trajectory]
         smooth = savgol_filter(mean_abs_vergence_errors, 21, 3)
         ax.plot(trajectory, smooth, "-", lw=2, label="+-{}".format(win))
+    ax.axhline(90 / 320, color="k", linestyle="--")
     ax.legend()
     ax.set_xlabel("episode")
     ax.set_ylabel("abs vergence error in degrees")
+    ax.set_ylim([0.0, 1.5])
     ax.set_title("vergence error wrt time")
     if save:
         fig.savefig(plotpath + "/vergence_error_wrt_time.png")
@@ -605,7 +609,7 @@ def vergence_wrt_object_distance(data, save=False):
     rewards = data["total_reward"]
     X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
     correct = -np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * X)) * 2
-    ax.scatter(object_distance, vergence, c=rewards, cmap="Greys")
+    ax.scatter(object_distance, vergence, alpha=0.1)
     ax.plot(X, correct, "k-")
     ax.set_xlabel("object position in meters")
     ax.set_ylabel("vergence position in degrees")
@@ -739,6 +743,8 @@ if __name__ == "__main__":
 
         # print("target_wrt_delta_vergence:")
         # target_wrt_delta_vergence(data, discount_factor, args.save)
+
+
 
         print("preference for correct action")
         for i in range(8):
