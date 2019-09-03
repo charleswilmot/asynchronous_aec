@@ -104,6 +104,7 @@ ______________________________________________________________________
 
 # Test data
 
+```
 dttest_data = np.dtype([
     ("action_index", (np.int32, 3)),             # index of the chosen action in the action set (tilt, pan, vergence)
     ("action_value", (np.float32, 3)),           # corresponding value in degrees
@@ -116,3 +117,4 @@ dttest_data = np.dtype([
     ("speed_error", (np.float32, 2)),            # speed errors
     ("vergence_error", np.float32)               # vergence error
 ])
+```
