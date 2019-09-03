@@ -124,11 +124,13 @@ def get_cluster(n_parameter_servers, n_workers):
     for i in range(n_parameter_servers):
         if "ps" not in spec:
             spec["ps"] = []
-        spec["ps"].append("localhost:{}".format(i + port))
+        port = get_available_port(port + 1)
+        spec["ps"].append("localhost:{}".format(port))
     for i in range(n_workers):
         if "worker" not in spec:
             spec["worker"] = []
-        spec["worker"].append("localhost:{}".format(i + port + n_parameter_servers))
+        port = get_available_port(port + 1)
+        spec["worker"].append("localhost:{}".format(port))
     return tf.train.ClusterSpec(spec)
 
 
