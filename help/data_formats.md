@@ -1,6 +1,6 @@
-### Help about the data formats
+# Help about the data formats
 ## Training data
-# Description
+### Description
 
 
 The training data is gathered in the `get_trajectory` function, and passed to the `store_data` function.
@@ -38,7 +38,7 @@ The data available is the following:
 
 The shape is given before the dictionaries are stacked on the first dimension.
 
-# Issues
+### Issues
 
 There can be collisions (rarely) of the trajectory and the global_iteration fields between different workers, ie.
 
@@ -59,13 +59,13 @@ ________________________________________________________________________________
 
 
 ## Testing data
-# Description
+### Description
 
 The test cases are pregenerated and stored in a pickle file.
 This pickle file is then loaded, and the test cases are dispatched amongst workers.
 Finaly, the data is gather, and pickled into the `/test_data` directory.
 
-# Test configuration files
+### Test configuration files
 
 
 The testing configuration files contains a dictionary with the fields:
@@ -107,7 +107,7 @@ test_conf = {
 ______________________________________________________________________
 
 
-# Test data
+### Test data
 
 ```
 dttest_data = np.dtype([
