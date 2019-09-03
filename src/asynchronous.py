@@ -621,6 +621,18 @@ class Worker:
 
     def apply_action(self, action):
         tilt, pan, verg = action
+        tilt_pos, pan_pos, verg_pos = self.robot.getEyePositions()
+        self.tilt_delta += self.action_set_tilt[tilt]
+        self.pan_delta += self.action_set_pan[pan]
+        tilt_new_pos = tilt_pos + self.tilt_delta
+        pan_new_pos = pan_pos + self.pan_delta
+        verg_new_pos = np.clip(verg_pos + self.action_set_vergence[verg], -8, 0)
+        self.robot.setEyePositions((tilt_new_pos, pan_new_pos, verg_new_pos))
+        self.screen.iteration_init()
+        self.universe.sim.stepSimulation()
+
+    def apply_action_with_reset(self, action):
+        tilt, pan, verg = action
         if tilt > 8 or pan > 8 or verg > 8:
             print("!!!!!")
             print(action)
