@@ -19,13 +19,17 @@ import vbridge as vb
 import RESSOURCES
 import pickle
 from itertools import cycle, islice, product
+from imageio import get_writer
+from PIL import ImageDraw, Image #, ImageFont
 
 
 dttest_data = np.dtype([
     ("action_index", (np.int32, 3)),
     ("action_probability", (np.float32, 3)),
     ("action_value", (np.float32, 3)),
-    ("critic_value", np.float32),
+    ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (dttest_data shoud be member of the worker)
+    ("critic_value_pan", (np.float32, 9)),
+    ("critic_value_vergence", (np.float32, 9)),
     ("total_reconstruction_error", np.float32),
     ("eye_position", (np.float32, 3)),
     ("eye_speed", (np.float32, 2)),
@@ -434,12 +438,12 @@ class Worker:
         summary_loss = tf.summary.scalar("/autoencoders/loss", self.autoencoder_loss)
         summary_per_joint = [tf.summary.scalar("/critic/{}".format(jn), self.critic_loss[jn]) for jn in ["tilt", "pan", "vergence"]]
         summary_critic_loss = tf.summary.scalar("/critic/loss", self.critic_loss_all_levels_all_joints)
-        summary_scale_critic_loss = [tf.summary.scalar("/critic/{}_ratio_{}".format(jn, r), self.scale_loss[jn][r]) for jn, r in product(["tilt", "pan", "vergence"], self.ratios)]
+        # summary_scale_critic_loss = [tf.summary.scalar("/critic/{}_ratio_{}".format(jn, r), self.scale_loss[jn][r]) for jn, r in product(["tilt", "pan", "vergence"], self.ratios)]
         summary_images = [tf.summary.image("ratio_{}".format(r), self.scale_tensorboard_images[r], max_outputs=1) for r in self.ratios]
         self.summary = tf.summary.merge(
             [summary_loss, summary_critic_loss] +
             summary_per_joint +
-            summary_scale_critic_loss +
+            # summary_scale_critic_loss +
             summary_images
         )
         ### Ops
@@ -506,7 +510,9 @@ class Worker:
                 action = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
                 test_data[i]["action_index"] = action
                 test_data[i]["action_value"] = (self.action_set_tilt[action[0]], self.action_set_pan[action[1]], self.action_set_vergence[action[2]])
-                test_data[i]["critic_value"] = data["critic_value"]
+                test_data[i]["critic_value_tilt"] = data["critic_value"]["tilt"]
+                test_data[i]["critic_value_pan"] = data["critic_value"]["pan"]
+                test_data[i]["critic_value_vergence"] = data["critic_value"]["vergence"]
                 test_data[i]["total_reconstruction_error"] = data["total_reconstruction_error"]
                 test_data[i]["eye_position"] = eye_position
                 test_data[i]["eye_speed"] = (self.tilt_delta, self.pan_delta)
@@ -891,7 +897,7 @@ class Experiment:
             current_step = p.recv()
         return current_step
 
-    def asynchronously_test(self, test_conf_path, chunks_size=10):
+    def asynchronously_test(self, test_conf_path, chunks_size=10, outpath=None):
         # generate list_of_test_cases
         with open(test_conf_path, "rb") as f:
             list_of_test_cases = pickle.load(f)["test_cases"]
@@ -906,7 +912,10 @@ class Experiment:
         # get the current iteration...
         current_step = self.get_current_step()
         # store the data
-        path = self.testdatadir + "/{}.pkl".format(current_step)
+        path = self.testdatadir if outpath is None else outpath
+        test_conf_basename = os.path.basename(test_conf_path)
+        test_conf_name = os.path.splitext(test_conf_basename)[0]
+        path = path + "/{}_{}.pkl".format(current_step, test_conf_name)
         with open(path, "wb")as f:
             pickle.dump(test_data_summary, f)
 
@@ -1094,6 +1103,7 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
+    test_at = args.update_per_episode * np.array([10000, 30000, 50000, 70000, 150000]) // args.flush_every
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
@@ -1101,8 +1111,10 @@ if __name__ == "__main__":
         if args.tensorboard:
             exp.start_tensorboard()
         for i in range(args.n_trajectories // args.flush_every):
-            if i in [2, 5, 10, 20, 30, 40, 50, 75]:
+            if i in test_at:
                 exp.save_model("{:08d}".format(i * args.flush_every))
+                exp.asynchronously_test("../test_conf/vergence_trajectory_4_distances.pkl")
             exp.asynchronously_train(args.flush_every)
             exp.flush_data()
         exp.save_model("{:08d}".format((i + 1) * args.flush_every))
+        exp.asynchronously_test("../test_conf/vergence_trajectory_4_distances.pkl")
