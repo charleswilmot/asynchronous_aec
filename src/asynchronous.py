@@ -257,8 +257,9 @@ class Worker:
         sub = self.scale_rec[ratio] - target
         self.patch_recerrs[ratio] = tf.reduce_mean(sub ** 2, axis=3)
         self.scale_recerrs[ratio] = tf.reduce_mean(self.patch_recerrs[ratio], axis=[1, 2])
-        self.patch_rewards[ratio] = -(self.patch_recerrs[ratio] - 0.03) / 0.03
-        self.scale_rewards[ratio] = -(self.scale_recerrs[ratio] - 0.03) / 0.03
+        self.patch_rewards[ratio] = (self.patch_recerrs[ratio][:-1] - self.patch_recerrs[ratio][1:]) / 0.01
+        self.scale_rewards[ratio] = (self.scale_recerrs[ratio][:-1] - self.scale_recerrs[ratio][1:]) / 0.01
+        self.scale_rewards__partial[ratio] = self.scale_recerrs[ratio] / 0.01
         self.scale_recerr[ratio] = tf.reduce_mean(self.scale_recerrs[ratio])
         ### Images for tensorboard:
         n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
@@ -279,9 +280,9 @@ class Worker:
     def define_critic_patch(self, ratio, joint_name):
         inp = tf.stop_gradient(self.scale_latent_conv[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
-        patch_values = tl.conv2d(inp, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
+        patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
         self.patch_values[joint_name][ratio] = patch_values
-        patch_rewards = self.patch_rewards[ratio][1:]
+        patch_rewards = self.patch_rewards[ratio]
         with tf.device(self.device):
             start = tf.reduce_max(patch_values[-1], axis=-1)[tf.newaxis]
             patch_returns = tf_returns(patch_rewards, self.discount_factor, start=start, axis=0)
@@ -302,16 +303,16 @@ class Worker:
         size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
         inp = tf.concat([
             tf.stop_gradient(self.scale_latent[ratio]),
-            tf.reshape(self.patch_values[joint_name][ratio], (-1, size))
+            tf.stop_gradient(tf.reshape(self.patch_values[joint_name][ratio], (-1, size)))
         ], axis=1)
         # inp = self.scale_latent[ratio]
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
-        # fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
+        fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
         # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
         # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
-        scale_values = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=None)
+        scale_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
         self.scale_values[joint_name][ratio] = scale_values
-        scale_rewards = self.scale_rewards[ratio][1:]
+        scale_rewards = self.scale_rewards[ratio]
         with tf.device(self.device):
             start = tf.reduce_max(scale_values[-1], axis=-1)[tf.newaxis]
             scale_returns = tf_returns(scale_rewards, self.discount_factor, start=start, axis=0)
@@ -336,7 +337,9 @@ class Worker:
         for ratio in self.ratios:
             self.define_critic_patch(ratio, joint_name)
             self.define_critic_scale(ratio, joint_name)
-        inp = tf.concat([tf.stop_gradient(self.latent)] + [self.scale_values[joint_name][r] for r in self.ratios], axis=-1)
+        inp = tf.concat(
+            [tf.stop_gradient(self.latent)] +
+            [tf.stop_gradient(self.scale_values[joint_name][r]) for r in self.ratios], axis=-1)
         # inp = tf.stop_gradient(self.latent)
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
         fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
@@ -344,7 +347,7 @@ class Worker:
         self.critic_values[joint_name] = critic_values
         with tf.device(self.device):
             start = tf.reduce_max(self.critic_values[joint_name][-1], axis=-1)[tf.newaxis]
-            self.returns[joint_name] = tf_returns(self.rewards[1:], self.discount_factor, start=start, axis=0)
+            self.returns[joint_name] = tf_returns(self.rewards, self.discount_factor, start=start, axis=0)
         actions = self.picked_actions[joint_name]
         indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
         critic_values_picked_actions = tf.gather_nd(critic_values, indices)
@@ -404,6 +407,7 @@ class Worker:
         self.patch_rewards = {}
         self.scale_recerrs = {}
         self.scale_rewards = {}
+        self.scale_rewards__partial = {}
         self.scale_recerr = {}
         self.scale_tensorboard_images = {}
         for ratio in self.ratios:
@@ -411,6 +415,7 @@ class Worker:
         self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
         self.autoencoder_loss = sum([self.scale_recerr[r] for r in self.ratios])
         self.rewards = sum([self.scale_rewards[r] for r in self.ratios]) / len(self.ratios)
+        self.rewards__partial = sum([self.scale_rewards__partial[r] for r in self.ratios]) / len(self.ratios)
 
     def define_epsilon(self):
         self.epsilon = tf.Variable(self.epsilon_init)
@@ -513,18 +518,21 @@ class Worker:
         return ret
 
     def play_trajectory(self, greedy=False):
-        fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards
+        fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
         self.reset_env()
         mean = 0
+        total_reward__partial = 0
         for iteration in range(self.sequence_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-            ret, reward = self.sess.run(fetches, feed_dict)
+            ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
+            reward = total_reward__partial - total_reward__partial_new[0]
+            total_reward__partial = total_reward__partial_new[0]
             object_distance = self.screen.distance
             vergence = self.robot.getEyePositions()[-1]
             vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
             mean += np.abs(vergence_error)
-            print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward[0]), end="\n")
+            print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward), end="\n")
             self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
         print("mean abs vergence error: {:.4f}".format(mean / self.sequence_length))
 
@@ -534,12 +542,14 @@ class Worker:
         rewards = []
         fetches = {
             "scales_inp": self.scales_inp,
+            "scale_reward__partial": self.scale_rewards__partial,
+            "total_reward__partial": self.rewards__partial,
             "greedy_actions_indices": self.greedy_actions_indices
         }
         fetches_store = {
             "scales_inp": self.scales_inp,
-            "scale_reward": self.scale_rewards,
-            "total_reward": self.rewards,
+            "scale_reward__partial": self.scale_rewards__partial,
+            "total_reward__partial": self.rewards__partial,
             "greedy_actions_indices": self.greedy_actions_indices,
             "sampled_actions_indices": self.sampled_actions_indices,
             "scale_values": self.scale_values,
@@ -547,15 +557,25 @@ class Worker:
         }
         self.reset_env()
         trajectory = self.sess.run(self.trajectory_count)
+        scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
+        total_reward__partial = np.zeros(shape=(), dtype=np.float32)
         for iteration in range(self.sequence_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             if iteration < self.sequence_length:
                 ret = self.sess.run(fetches_store, feed_dict)
+                ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
+                scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
+                scale_reward = scale_reward__partial - scale_reward__partial_new
+                scale_reward__partial = scale_reward__partial_new
+                total_reward__partial_new = ret["total_reward__partial"][0]
+                total_reward = total_reward__partial - total_reward__partial_new
+                total_reward__partial = total_reward__partial_new
+                ###
                 object_distance = self.screen.distance
                 eyes_position = self.robot.getEyePositions()
                 eyes_speed = (self.tilt_delta, self.pan_delta)
-                self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, trajectory)
+                self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, trajectory, scale_reward, total_reward)
             else:
                 ret = self.sess.run(fetches, feed_dict)
             states.append({r: ret["scales_inp"][r][0] for r in self.ratios})
@@ -565,14 +585,14 @@ class Worker:
         self.buffer.incorporate((states, actions))
         return states, actions
 
-    def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration, trajectory):
+    def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration, trajectory, scale_reward, total_reward):
         data = {
             "worker": np.squeeze(np.array(self.task_index)),
             "trajectory": np.squeeze(np.array(trajectory)),
             "iteration": np.squeeze(np.array(iteration)),
             "global_iteration": np.squeeze(np.array(trajectory * self.sequence_length + iteration)),
-            "total_reward": np.squeeze(np.array(ret["total_reward"])),
-            "scale_rewards": np.squeeze(np.array([ret["scale_reward"][ratio] for ratio in self.ratios])),
+            "total_reward": np.squeeze(total_reward),
+            "scale_rewards": np.squeeze(scale_reward),
             "greedy_actions_indices": np.squeeze(np.array([ret["greedy_actions_indices"][k] for k in ["tilt", "pan", "vergence"]])),
             "sampled_actions_indices": np.squeeze(np.array([ret["sampled_actions_indices"][k] for k in ["tilt", "pan", "vergence"]])),
             "scale_values_tilt": np.squeeze(np.array([ret["scale_values"]["tilt"][ratio] for ratio in self.ratios])),
