@@ -43,12 +43,13 @@ The shape is given before the dictionaries are stacked on the first dimension.
 There can be collisions (rarely) of the trajectory and the global_iteration fields between different workers, ie.
 
 worker_2 and worker_7 can both have a trajectory number 1234 and therefore will have all global_iterations
+```
 1234 * sequence_length + 0
 1234 * sequence_length + 1
 1234 * sequence_length + 2
 ...
 1234 * sequence_length + sequence_length - 1
-
+```
 _______________________________________________________________________________________________
 
 Too much data is stored, it takes to much place on the hard drive and is not convenient for plotting
@@ -71,6 +72,7 @@ The testing configuration files contains a dictionary with the fields:
 
 "test_descriptions": a dictionary of anchors
 example of one anchor:
+```
 {
     "stimulus": [0, 1, 2],
     "object_distances": [0.5, 2, 4],
@@ -78,10 +80,12 @@ example of one anchor:
     "speed_errors": [(0, 0)],
     "n_iterations": [20]
 }
+```
 This anchor engenders all test_cases with stimulus 0, 1, 2 at every distances 0.5, 2, 4, for every initial vergence errors ......
 
 
 "test_cases": a numpy array of type `dttest_case`
+```
 dttest_case = np.dtype([
     ("stimulus", np.int32),            # the id of the stimulus that must be used
     ("object_distance", np.float32),   # the distance at which the stimulus is placed
@@ -89,16 +93,17 @@ dttest_case = np.dtype([
     ("speed_error", (np.float32, 2)),  # the initial speed error wrt the screen
     ("n_iterations", np.int32)         # the number of iterations that must be simulated
 ])
-
+```
 ______________________________________________________________________
 
 Example of a test_conf dictionary:
 
+```
 test_conf = {
   "test_descriptions": {"test_name_1": test_anchors_lists, "test_name_2": test_anchors_lists},
   "test_cases": big_array_of_type_dttest_case
 }
-
+```
 ______________________________________________________________________
 
 
