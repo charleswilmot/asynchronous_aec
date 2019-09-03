@@ -373,6 +373,53 @@ def action_wrt_vergence(data, min_dist, max_dist, greedy=False, save=False):
     plt.close(fig)
 
 
+def action_wrt_vergence_based_on_critic(data, min_dist, max_dist, scale, save=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    where = np.where(np.logical_and(data["object_distance"] < max_dist, data["object_distance"] > min_dist))
+    vergence_errors = vergence_error(data["eyes_position"][where], data["object_distance"][where])
+    actions = np.argmax(data["scale_values_vergence"][where][:, scale], axis=-1)
+    # actions = np.argmax(data["critic_values_vergence"][where], axis=-1)
+    n_bins = 50
+    bins = np.linspace(np.min(vergence_errors), np.max(vergence_errors), n_bins)
+    args = np.digitize(vergence_errors, bins)
+    probs = []
+    for i in range(1, n_bins):
+        counts = np.bincount(actions[np.where(args==i)], minlength=n_actions_per_joint)
+        # probs.append(counts)
+        tmp = counts / np.sum(counts)
+        # tmp[4] = 0
+        probs.append(tmp)
+        # print("\n")
+    im = ax.imshow(np.array(probs)[:, ::-1].T, extent=(bins[0], bins[-1], -(n_actions_per_joint // 2) - 0.5, n_actions_per_joint // 2 + 0.5), interpolation="none", vmin=0, vmax=1)
+    fig.colorbar(im)
+    ax.set_title("Action wrt vergence error")
+    ax.set_xlabel("vergence error")
+    ax.set_ylabel("action")
+    ax.plot(action_set, np.arange(-4, 5), "k-", alpha=0.3)
+    if save:
+        filename = "/action_wrt_vergence_{}.png".format(scale)
+        fig.savefig(plotpath + filename)
+    else:
+        plt.show()
+    plt.close(fig)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    im = ax.imshow(np.log(np.array(probs)[:, ::-1].T + 0.03), extent=(bins[0], bins[-1], -(n_actions_per_joint // 2) - 0.5, n_actions_per_joint // 2 + 0.5), interpolation="none", vmin=-3, vmax=0)
+    fig.colorbar(im)
+    ax.set_title("Action wrt vergence error")
+    ax.set_xlabel("vergence error")
+    ax.set_ylabel("action")
+    ax.plot(action_set, np.arange(-4, 5), "k-", alpha=0.3)
+    if save:
+        filename = "/action_wrt_vergence_log_{}.png".format(scale)
+        fig.savefig(plotpath + filename)
+    else:
+        plt.show()
+    plt.close(fig)
+
+
 def preference_for_correct_action(data, scale="all", save=False):
     fig = plt.figure()
     data = group_by_trajectory(data)
@@ -704,6 +751,9 @@ if __name__ == "__main__":
         action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
         print("vergence_wrt_object_distance:")
         vergence_wrt_object_distance(data, args.save)
+        for i in range(8):
+            action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
+
         # print("v shape")
         # delta_reward_wrt_delta_vergence(data, args.save)
 
