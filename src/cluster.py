@@ -39,8 +39,9 @@ class ClusterQueue:
             arg = self._to_arg(flag, v)
             self.cmd += arg
         self.cmd += self._to_arg("--experiment-path", experiment_path)
+        print("\n", self.cmd, "\n")
         os.system(self.cmd)
-        time.sleep(60)
+        time.sleep(10)
 
     def _key_to_flag(self, key):
         return "--" + key.replace("_", "-")
@@ -49,7 +50,36 @@ class ClusterQueue:
         return " {} {}".format(flag, v)
 
 
-ClusterQueue(n_trajectories=1000000, n_workers=25, description="DQN_low_gamma_high_mlr_high_epsilon", critic_learning_rate=1e-4, model_learning_rate=1e-4, discount_factor=0.1, update_per_episode=10, sequence_length=10, epsilon=0.25)
+cq = ClusterQueue(n_trajectories=2000000, n_workers=40, n_parameter_servers=2, description="DQN_gamma_0.0_clr_1e-4_epsilon_0.2_no_reset_scales_0_1_2", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+             discount_factor=0.0, update_per_episode=10, sequence_length=10, epsilon=0.2)
+
+
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.1_clr_1e-4_epsilon_0.2_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.1, update_per_episode=10, sequence_length=10, epsilon=0.2)
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.2_clr_1e-4_epsilon_0.2_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.2, update_per_episode=10, sequence_length=10, epsilon=0.2)
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.4_clr_1e-4_epsilon_0.2_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.4, update_per_episode=10, sequence_length=10, epsilon=0.2)
+
+# update_per_episode = 10
+# epsilon_at_20000 = 0.2
+# epsilon_decay = np.exp(np.log(epsilon_at_20000) / (20000 * update_per_episode))
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.0_clr_1e-4_epsilon_at_20000_0.2_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.0, update_per_episode=update_per_episode, sequence_length=10, epsilon=1.0, epsilon_decay=epsilon_decay)
+#
+#
+# update_per_episode = 10
+# epsilon_at_20000 = 0.5
+# epsilon_decay = np.exp(np.log(epsilon_at_20000) / (20000 * update_per_episode))
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.0_clr_1e-4_epsilon_at_20000_0.5_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.0, update_per_episode=update_per_episode, sequence_length=10, epsilon=1.0, epsilon_decay=epsilon_decay)
+#
+#
+# update_per_episode = 10
+# epsilon_at_20000 = 0.1
+# epsilon_decay = np.exp(np.log(epsilon_at_20000) / (20000 * update_per_episode))
+# ClusterQueue(n_trajectories=1000000, n_workers=8, description="DQN_gamma_0.0_clr_1e-4_epsilon_at_20000_0.1_no_reset", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+#              discount_factor=0.0, update_per_episode=update_per_episode, sequence_length=10, epsilon=1.0, epsilon_decay=epsilon_decay)
 
 # ClusterQueue(n_trajectories=1000000, description="DQN_first_attempt", critic_learning_rate=1e-8, discount_factor=0.3, update_per_episode=5, sequence_length=20)
 # ClusterQueue(n_trajectories=500000, description="replicate_after_code_update")
