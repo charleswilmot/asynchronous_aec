@@ -989,14 +989,14 @@ if __name__ == "__main__":
         '-np', '--n-parameter-servers',
         type=int,
         help="Number of parameter servers.",
-        default=2
+        default=1
     )
 
     parser.add_argument(
         '-nw', '--n-workers',
         type=int,
         help="Number of workers.",
-        default=16
+        default=8
     )
 
     parser.add_argument(
@@ -1016,28 +1016,28 @@ if __name__ == "__main__":
         '-fe', '--flush-every',
         type=int,
         help="Flush every N simulated trajectory.",
-        default=5000
+        default=50000
     )
 
     parser.add_argument(
         '-nt', '--n-trajectories',
         type=int,
         help="Number of trajectories to be simulated.",
-        default=100000
+        default=1000000
     )
 
     parser.add_argument(
         '-sl', '--sequence-length',
         type=int,
         help="Length of an episode.",
-        default=40
+        default=10
     )
 
     parser.add_argument(
         '-u', '--update-per-episode',
         type=int,
         help="Number of updates per gathered trajectory.",
-        default=5
+        default=10
     )
 
     parser.add_argument(
@@ -1064,14 +1064,14 @@ if __name__ == "__main__":
     parser.add_argument(
         '-df', '--discount-factor',
         type=float,
-        default=0,
+        default=0.1,
         help="Discount factor."
     )
 
     parser.add_argument(
         '-eps', '--epsilon',
         type=float,
-        default=0.05,
+        default=0.2,
         help="Initial value for epsilon."
     )
 
