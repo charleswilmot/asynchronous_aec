@@ -58,20 +58,43 @@ def plot_vergence_trajectory_sub(ax, data):
         test_data = np.array([b for a, b in filtered])
         ax.plot(test_data["vergence_error"].T, color="grey", alpha=0.2)
         # plot mean and std
-        ax.plot(np.mean(test_data["vergence_error"].T, axis=1))
+        ax.plot(np.mean(test_data["vergence_error"].T, axis=1), linewidth=1.5)
         # plot a little horizontal line to indicate where the vergence error starts
-        ax.axhline(y=vergence_error, xmin=0, xmax=1, color="r")
+        ax.axhline(y=vergence_error, xmin=0, xmax=0.1, color="r")
     # plot the abscissa, add title, axis label etc...
     ax.axhline(0, color="k")
+    ax.axhline(90 / 320, color="k", linestyle="--")
+    ax.axhline(-90 / 320, color="k", linestyle="--")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Vergence error (deg)")
+    ax.set_ylim([np.min(test_cases["vergence_error"]) - 1, np.max(test_cases["vergence_error"]) + 1])
+    ax.set_title("Object distance  {:.4f}".format(data[0][0]["object_distance"]))
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        'path', metavar="PATH",
+        type=str,
+        action='store',
+        help="Path to the test_data."
+    )
+    parser.add_argument(
+        'test_conf_path', metavar="TEST_CONF_PATH",
+        type=str,
+        action='store',
+        help="Path to the test config file."
+    )
+    args = parser.parse_args()
+
+
     fig = plt.figure()
 
-    with open("../test_conf/vergence_trajectory_4_distances.pkl", "rb") as f:
+    with open(args.test_conf_path, "rb") as f:
         lists_of_param_anchors = pickle.load(f)["test_descriptions"]["vergence_trajectory"]
 
-    with open("../tmp/3134260_3.pkl", "rb") as f:
+    with open(args.path, "rb") as f:
         data = pickle.load(f)
 
     plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
