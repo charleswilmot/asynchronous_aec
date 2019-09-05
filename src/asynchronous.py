@@ -48,8 +48,13 @@ anaglyph_matrix = np.array([
 
 
 def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number):
+    """Makes an anaglyph from a left and right images, plus writes some infos on the frame
+    """
+    # left right to anaglyph
     image = np.matmul(np.concatenate([left_image, right_image], axis=-1), anaglyph_matrix).astype(np.uint8)
+    # convert to PIL image
     image = Image.fromarray(image)
+    # create a drawer form writing text on the frame
     drawer = ImageDraw.Draw(image)
     string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
         object_distance, vergence_error, episode_number, total_episode_number
@@ -59,6 +64,9 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
 
 
 class ProperDisplay:
+    """Just a helper tool for conveniently showing infos in the terminal during testing phases.
+    This class just implements the __repr__ function, which is call when the object is printed.
+    """
     def __init__(self, data, i, n):
         self.data = data
         self.i = i
@@ -81,6 +89,8 @@ def chunks(l, n):
 
 
 def get_textures(path):
+    """Reads and return all the textures (ie images) found under path.
+    """
     filepaths = [path + "/{}".format(x) for x in os.listdir(path) if x.endswith(".bmp") or x.endswith(".png")]
     return np.array([np.array(Image.open(x)) for x in filepaths])
 
@@ -95,6 +105,8 @@ def actions_dict_from_array(actions):
 
 
 def lrelu(x):
+    """Tensorflow activation function (slope 0.2 for x < 0, slope 1 for x > 0)
+    """
     alpha = 0.2
     return tf.nn.relu(x) * (1 - alpha) + x * alpha
 
@@ -122,6 +134,8 @@ def normalize(ten, alpha):
 
 
 def get_cluster(n_parameter_servers, n_workers):
+    """Returns a cluster object that enables tensorflow to perform asynchronous updates of the variables
+    """
     spec = {}
     port = get_available_port(2222)
     for i in range(n_parameter_servers):
@@ -138,11 +152,15 @@ def get_cluster(n_parameter_servers, n_workers):
 
 
 def is_port_in_use(port):
+    """Returns true is the port is available, else false
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
 
 def get_available_port(start_port=6006):
+    """Returns the first available port, starting from start_port
+    """
     port = start_port
     while is_port_in_use(port):
         port += 1
@@ -154,6 +172,11 @@ def custom_loss(x):
 
 
 class Conf:
+    """Meant to contain all parameters related to the model.
+    todo: add the ratios parameter, that controls which ratios are used
+    todo: pass this conf object directly to the constructor of the Worker object
+    todo: buffer size should not be fixed (=20) but should be defined from the command line
+    """
     def __init__(self, args):
         self.mlr, self.clr = args.model_learning_rate, args.critic_learning_rate
         self.epsilon = args.epsilon
@@ -165,6 +188,10 @@ class Conf:
 
 
 class Worker:
+    """A worker is a client in a subprocess waiting for instruction.
+    It first defines a model according to the model's parameters, then goes to the idle mode, and waits for instructions
+    todo: see the Conf object: pass a Conf instance to the Worker constructor.
+    """
     def __init__(self, cluster, task_index, pipe, logdir, simulator_port,
                  model_lr, critic_lr, discount_factor,
                  epsilon_init, epsilon_decay,
@@ -198,17 +225,18 @@ class Worker:
         self.summary_writer = tf.summary.FileWriter(self.logdir + "/worker{}".format(task_index), graph=graph)
         self.saver = tf.train.Saver()
         self.sess = tf.Session(target=self.server.target)
+        # todo: variable initialization can be done in the experiment constructor, would be more elegent
         if task_index == 0 and len(self.sess.run(tf.report_uninitialized_variables())) > 0:  # todo: can be done in Experiment
             self.sess.run(tf.global_variables_initializer())
-            print("{}  variables initialized".format(self.name))
-        # lock = filelock.FileLock("/home/wilmot/Documents/code/asynchronous_aec/experiments/lock_universe")
-        # lock.acquire()
+            print("{} variables initialized".format(self.name))
+        # starting VREP
         self.universe = vb.Universe(task_index == 0 and worker0_display, port=simulator_port)
         self.robot = self.universe.robot
         resA, resolution, imgCamLeft = vrep.simxGetVisionSensorImageFast(self.robot.sim.clientID,
                                                                          self.robot.sim.handles["camLeft"],
                                                                          not self.robot.rgbEyes,
                                                                          vrep.simx_opmode_blocking)
+        # simple security mechanism to check that the camaras are working (useless most of the time)
         while imgCamLeft is None:
             print("{} cameras return None ... waiting 1 sec".format(self.name))
             time.sleep(1)
@@ -216,14 +244,20 @@ class Worker:
                                                                             self.robot.sim.handles["camLeft"],
                                                                             not self.robot.rgbEyes,
                                                                             vrep.simx_opmode_blocking)
-        # lock.release()
+        # load textures in the ram memory
         self.textures = get_textures("/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/")
+        # create a screen
         self.screen = vb.ConstantSpeedScreen(self.universe.sim, (0.5, 5), 0.0, 0, self.textures)
+        # put the screen behind the robot
         self.screen.set_positions(-2, 0, 0)
+        # set the eye speeds to 0.0 deg/iteration
         self.tilt_delta = 0.0
         self.pan_delta = 0.0
 
     def define_scale_inp(self, ratio):
+        """Crops, downscales and converts to float32 a central region of the camera images
+        32*ratio x 32*ratio --> 32 x 32
+        """
         crop_side_length = 16
         height_slice = slice(
             (240 - crop_side_length * ratio) // 2,
@@ -231,14 +265,19 @@ class Worker:
         width_slice = slice(
             (320 - crop_side_length * ratio) // 2,
             (320 + crop_side_length * ratio) // 2)
+        # CROP
         scale_uint8 = self.cams[:, height_slice, width_slice, :]
+        # DOWNSCALE
         scale_uint8 = tf.image.resize_bilinear(scale_uint8, [crop_side_length, crop_side_length])
+        # CONVERT TO FLOAT
         scale = tf.placeholder_with_default(
             tf.cast(scale_uint8, tf.float32) / 127.5 - 1,
             shape=scale_uint8.get_shape())
         self.scales_inp[ratio] = scale
 
     def define_autoencoder_scale(self, ratio, filter_size=4, stride=2):
+        """Defines an autoencoder that operates at one scale (one downscaling ratio)
+        """
         inp = self.scales_inp[ratio]
         batch_size = tf.shape(inp)[0]
         conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
@@ -281,6 +320,8 @@ class Worker:
         self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
 
     def define_critic_patch(self, ratio, joint_name):
+        """Defines the critic at the level of the patches, for one scale, for one joint
+        """
         inp = tf.stop_gradient(self.scale_latent_conv[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
         patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
@@ -303,6 +344,8 @@ class Worker:
         self.patch_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
 
     def define_critic_scale(self, ratio, joint_name):
+        """Defines the critic at the level of one scale, for one joint
+        """
         size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
         inp = tf.concat([
             tf.stop_gradient(self.scale_latent[ratio]),
@@ -330,6 +373,8 @@ class Worker:
         self.scale_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
 
     def define_critic_joint(self, joint_name):
+        """Defines the critic merging every scales, for one joint
+        """
         self.picked_actions[joint_name] = tf.placeholder(shape=(None,), dtype=tf.int32)
         self.action_mask[joint_name] = tf.one_hot(
             self.picked_actions[joint_name][:-1],
@@ -370,6 +415,8 @@ class Worker:
         self.sampled_actions_indices[joint_name] = tf.where(condition, x=self.greedy_actions_indices[joint_name], y=random)
 
     def define_critic(self):
+        """Defines the critics for each joints
+        """
         # done once for every joint
         self.picked_actions = {}
         self.action_mask = {}
@@ -473,17 +520,32 @@ class Worker:
             raise e
 
     def save(self, path):
+        """Save a checkpoint on the hard-drive under path
+        The Experiment class calls this methode on the worker 0 only
+        """
         save_path = self.saver.save(self.sess, path + "/network.ckpt")
         self.pipe.send("{} saved model to {}".format(self.name, save_path))
 
     def get_current_step(self):
+        """Returns the current model training step in the pipe
+        The Experiment class calls this methode on the worker 0 only
+        """
         self.pipe.send(self.sess.run(self.train_step))
 
     def restore(self, path):
+        """Restores from a checkpoint
+        The Experiment class calls this methode on the worker 0 only
+        """
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
 
     def test_chunks(self, proper_display_of_chunk_of_test_cases):
+        """Performs tests in the simulator, using the greedy policy.
+        proper_display_of_chunk_of_test_cases is a wrapper around a chunk_of_test_cases (for pretty printing)
+        chunk_of_test_cases contains all informations about the tests that must be performed in the simulator
+        Each worker gets a few test cases to process, enabling parallel computations
+        The resulting measures are sent back to the Experiment class (the servor)
+        """
         chunk_of_test_cases = proper_display_of_chunk_of_test_cases.data
         ret = []
         fetches = {
@@ -523,6 +585,9 @@ class Worker:
         return ret
 
     def play_trajectory(self, greedy=False):
+        """Performs one episode of fake training (for visualizing a trained agent in the simulator, see playback.py)
+        The greedy boolean specifies wether the greedy or sampled policy should be used
+        """
         fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
         self.reset_env()
         mean = 0
@@ -542,6 +607,10 @@ class Worker:
         print("mean abs vergence error: {:.4f}".format(mean / self.sequence_length))
 
     def get_trajectory(self):
+        """Get the training data that the RL algorithm needs,
+        and stores trining infos in a buffer that must be flushed regularly
+        See the help guide about data formats
+        """
         states = []
         actions = []
         rewards = []
@@ -591,6 +660,9 @@ class Worker:
         return states, actions
 
     def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration, trajectory, scale_reward, total_reward):
+        """Constructs a dictionary from data and store it in a buffer
+        See the help guide about data formats
+        """
         data = {
             "worker": np.squeeze(np.array(self.task_index)),
             "trajectory": np.squeeze(np.array(trajectory)),
@@ -613,6 +685,11 @@ class Worker:
         self.end_episode_data.append(data)
 
     def flush_data(self, path):
+        """Reformats the training data buffer and dumps it onto the hard drive
+        This function must be called regularly.
+        The frequency at which it is called can be specified in the command line with the option --flush-every
+        See the help guide about data formats
+        """
         length = len(self.end_episode_data)
         data = {k: np.zeros([length] + list(self.end_episode_data[0][k].shape), dtype=self.end_episode_data[0][k].dtype) for k in self.end_episode_data[0]}
         for i, d in enumerate(self.end_episode_data):
@@ -625,6 +702,9 @@ class Worker:
         self.pipe.send("{} flushed data on the hard drive".format(self.name))
 
     def apply_action(self, action):
+        """Applies an action in the simulator, moves the screen if needed.
+        The vergence joint angle is cliped between -8 and 0 degrees.
+        """
         tilt, pan, verg = action
         tilt_pos, pan_pos, verg_pos = self.robot.getEyePositions()
         self.tilt_delta += self.action_set_tilt[tilt]
@@ -637,35 +717,32 @@ class Worker:
         self.universe.sim.stepSimulation()
 
     def apply_action_with_reset(self, action):
+        """Applies an action in the simulator, moves the screen if needed.
+        The vergence joint angle is reset to a random value when exceeding -8 or 0 degrees.
+        """
         tilt, pan, verg = action
-        if tilt > 8 or pan > 8 or verg > 8:
-            print("!!!!!")
-            print(action)
-            print("!!!!!")
         tilt_pos, pan_pos, verg_pos = self.robot.getEyePositions()
         self.tilt_delta += self.action_set_tilt[tilt]
         self.pan_delta += self.action_set_pan[pan]
         tilt_new_pos = tilt_pos + self.tilt_delta
         pan_new_pos = pan_pos + self.pan_delta
-        # verg_new_pos = np.clip(verg_pos + self.action_set_vergence[verg], -8, 0)
         verg_new_pos = verg_pos + self.action_set_vergence[verg]
         if verg_new_pos >= 0 or verg_new_pos <= -8:
             random_distance = np.random.uniform(low=0.5, high=5)
             verg_new_pos = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
             perfect_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * self.screen.distance)) * 360 / np.pi
             random_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
-            # one_pixel_in_angle = 0.28
             one_pixel_in_angle = 90 / 320
             verg_new_pos = perfect_vergence + np.round((random_vergence - perfect_vergence) / one_pixel_in_angle) * one_pixel_in_angle
-            # low = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * 0.5)) * 360 / np.pi
-            # high = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * 5)) * 360 / np.pi
-            # random_angle = np.random.uniform(low=low, high=high)
-            # verg_new_pos = random_angle
         self.robot.setEyePositions((tilt_new_pos, pan_new_pos, verg_new_pos))
         self.screen.iteration_init()
         self.universe.sim.stepSimulation()
 
     def reset_env(self):
+        """Places the screen at a random distance
+        Sets the eye position to a random vergance angle (random uniform distance sampling)
+        Resets the tilt/pan speed of the eyes to 0 degrees per iteration
+        """
         self.screen.episode_init()
         random_distance = np.random.uniform(low=0.5, high=5)
         # random_distance = self.screen.distance
@@ -680,6 +757,9 @@ class Worker:
         self.universe.sim.stepSimulation()
 
     def define_actions_sets(self):
+        """Defines the pan/tilt/vergence action sets
+        At the moment, pan and tilt are comprised only of zeros
+        """
         n = self.n_actions_per_joint // 2
         # tilt
         self.action_set_tilt = np.zeros(self.n_actions_per_joint)
@@ -694,7 +774,13 @@ class Worker:
         self.action_set_vergence = np.concatenate([negative, [0], positive])
 
     def train(self):
+        """Collects data in the simulator (see get_trajectory)
+        And updates the networks weights self.update_per_episode times by taking self.update_per_episode trajectories
+        from the replay buffer
+        """
+        # Simulate a trajectory and place the data in the replay buffer
         self.get_trajectory()
+        # Get self.update_per_episode trajectories from the replay buffer
         transitions = self.buffer.batch(self.update_per_episode)
         for states, actions in transitions:
             fetches = {
@@ -719,6 +805,8 @@ class Worker:
         return ret["step"]
 
     def start_training(self, n_updates):
+        """Calls the train function n_updates times
+        """
         step = self.sess.run(self.train_step)
         n_updates += step
         while step < n_updates - self._n_workers:
@@ -726,12 +814,16 @@ class Worker:
         self.pipe.send("{} going IDLE".format(self.name))
 
     def start_playback(self, n_trajectories, greedy=False):
+        """Calls the play_trajectory methode n_trajectories times
+        """
         for i in range(n_trajectories):
             self.play_trajectory(greedy=greedy)
             print("{} trajectory {}/{}".format(self.name, i, n_trajectories))
         self.pipe.send("{} going IDLE".format(self.name))
 
     def run_video(self, path, n_sequences, training=False):
+        """Generates a video, to be stored under path, concisting of n_sequences
+        """
         fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
@@ -770,8 +862,12 @@ def get_n_ports(n, start_port=19000):
 
 
 class Experiment:
+    """An experiment object allows to control clients / workers that train a model
+    It starts one process per worker, and one process per parameter server
+    It also constructs the filesystem tree for storing all results / data
+    """
     def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, worker0_display=False):
-        lock = filelock.FileLock("/home/wilmot/Documents/code/asynchronous_aec/experiments/lock")
+        lock = filelock.FileLock(os.path.abspath("../experiments/lock"))
         lock.acquire()
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
