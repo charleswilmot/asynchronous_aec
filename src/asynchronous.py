@@ -95,42 +95,11 @@ def get_textures(path):
     return np.array([np.array(Image.open(x)) for x in filepaths])
 
 
-def actions_dict_from_array(actions):
-    return {
-        "Arm1_to_Arm2_Left": actions[0],
-        "Ground_to_Arm1_Left": actions[1],
-        "Arm1_to_Arm2_Right": actions[2],
-        "Ground_to_Arm1_Right": actions[3]
-    }
-
-
 def lrelu(x):
     """Tensorflow activation function (slope 0.2 for x < 0, slope 1 for x > 0)
     """
     alpha = 0.2
     return tf.nn.relu(x) * (1 - alpha) + x * alpha
-
-
-# def lrelu(x):
-#     return tf.tanh(x)
-
-
-def exponential_moving_stats(ten, alpha):
-    mean = tf.reduce_mean(ten, axis=0)
-    moving_mean = tf.Variable(tf.zeros_like(mean))
-    moving_mean_assign = moving_mean.assign(alpha * moving_mean + (1 - alpha) * mean)
-    delta2 = tf.reduce_mean((ten - moving_mean) ** 2, axis=0)
-    moving_var = tf.Variable(tf.ones_like(mean))
-    moving_var_assign = moving_var.assign(alpha * (moving_var + (1 - alpha) * delta2))
-    cond = tf.less(tf.shape(ten)[0], 2)
-    moving_mean_cond = tf.cond(cond, lambda: moving_mean, lambda: moving_mean_assign)
-    moving_var_cond = tf.cond(cond, lambda: moving_var, lambda: moving_var_assign)
-    return moving_mean_cond, tf.sqrt(moving_var_cond)
-
-
-def normalize(ten, alpha):
-    mean, std = exponential_moving_stats(ten, alpha)
-    return (ten - mean) / (std + 1e-5)
 
 
 def get_cluster(n_parameter_servers, n_workers):
@@ -165,10 +134,6 @@ def get_available_port(start_port=6006):
     while is_port_in_use(port):
         port += 1
     return port
-
-
-def custom_loss(x):
-    return (1 - 1 / tf.cosh(2 * x)) / (1 - 1 / np.cosh(2))
 
 
 class Conf:
