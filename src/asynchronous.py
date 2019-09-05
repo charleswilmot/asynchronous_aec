@@ -951,11 +951,8 @@ class Experiment:
             p.recv()
 
     def get_current_step(self):
-        for p in self.here_pipes:
-            p.send(("get_current_step", ))
-        for p in self.here_pipes:
-            current_step = p.recv()
-        return current_step
+        self.here_pipes[0].send(("get_current_step", ))
+        return self.here_pipes[0].recv()
 
     def asynchronously_test(self, test_conf_path, chunks_size=10, outpath=None):
         # generate list_of_test_cases
