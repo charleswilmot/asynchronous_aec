@@ -180,7 +180,9 @@ class Worker:
         self.pipe = pipe
         self.logdir = logdir
         self.n_actions_per_joint = 9
-        self.ratios = list(range(1, 9))
+        # todo: see Conf object: put ratios in the Conf object
+        # self.ratios = list(range(1, 9))
+        self.ratios = [1, 2, 3]
         self.define_networks()
         self.define_actions_sets()
         self.end_episode_data = []
