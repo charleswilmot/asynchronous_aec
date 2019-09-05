@@ -25,7 +25,6 @@ from PIL import ImageDraw, Image #, ImageFont
 
 dttest_data = np.dtype([
     ("action_index", (np.int32, 3)),
-    ("action_probability", (np.float32, 3)),
     ("action_value", (np.float32, 3)),
     ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (dttest_data shoud be member of the worker)
     ("critic_value_pan", (np.float32, 9)),
