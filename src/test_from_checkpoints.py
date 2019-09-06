@@ -35,4 +35,4 @@ if __name__ == "__main__":
     with TemporaryDirectory() as d:
         with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, worker0_display=False) as exp:
             exp.restore_model(experiment_dir)
-            exp.asynchronously_test(args.test_conf_path, outpath=args.path + "/../../test_data/")
+            exp.test(args.test_conf_path, outpath=args.path + "/../../test_data/")

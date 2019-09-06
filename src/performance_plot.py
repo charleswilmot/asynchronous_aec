@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from plot import get_data, group_by_trajectory, vergence_error, savgol_filter
+from plot import get_data, group_by_episode, vergence_error, savgol_filter
 from plot_test import filter_data
 import pickle
 import os
@@ -11,24 +11,24 @@ def performances(train_data, test_data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     # TRAIN
-    train_data = group_by_trajectory(train_data)
+    train_data = group_by_episode(train_data)
     train_data = {k: v[:, -1] for k, v in train_data.items()}
-    trajectory = train_data["trajectory"]
+    episode_numbers = train_data["episode_number"]
     vergence_errors = vergence_error(train_data["eyes_position"], train_data["object_distance"])
     abs_vergence_errors = np.array(np.abs(vergence_errors))
-    args = np.argsort(trajectory)
-    trajectory = trajectory[args]
+    args = np.argsort(episode_numbers)
+    episode_numbers = episode_numbers[args]
     abs_vergence_errors = abs_vergence_errors[args]
     win = 500
-    mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(trajectory < x + win, trajectory > x - win))]) for x in trajectory]
+    mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(episode_numbers < x + win, episode_numbers > x - win))]) for x in episode_numbers]
     smooth = savgol_filter(mean_abs_vergence_errors, 21, 3)
-    ax.plot(trajectory, smooth, "-", lw=2, label="train")
+    ax.plot(episode_numbers, smooth, "-", lw=2, label="train")
     # TEST
     episodes = []
     vergence_error_mean = []
     # vergence_error_std = []
     for episode, episode_test_data in test_data:
-        episodes.append(episode / 10)
+        episodes.append(episode)
         print(episode)
         # print(episode_test_data[0])
         # print("\n")

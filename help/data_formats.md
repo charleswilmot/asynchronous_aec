@@ -44,11 +44,11 @@ There can be collisions (rarely) of the trajectory and the global_iteration fiel
 
 worker_2 and worker_7 can both have a trajectory number 1234 and therefore will have all global_iterations
 ```
-1234 * sequence_length + 0
-1234 * sequence_length + 1
-1234 * sequence_length + 2
+1234 * episode_length + 0
+1234 * episode_length + 1
+1234 * episode_length + 2
 ...
-1234 * sequence_length + sequence_length - 1
+1234 * episode_length + episode_length - 1
 ```
 _______________________________________________________________________________________________
 

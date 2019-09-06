@@ -147,8 +147,8 @@ class Conf:
         self.epsilon = args.epsilon
         self.epsilon_decay = args.epsilon_decay
         self.discount_factor = args.discount_factor
-        self.sequence_length = args.sequence_length
-        self.update_per_episode = args.update_per_episode
+        self.episode_length = args.episode_length
+        self.update_factor = args.update_factor
         self.buffer_size = 20
 
 
@@ -160,7 +160,7 @@ class Worker:
     def __init__(self, cluster, task_index, pipe, logdir, simulator_port,
                  model_lr, critic_lr, discount_factor,
                  epsilon_init, epsilon_decay,
-                 sequence_length, model_buffer_size, update_per_episode,
+                 episode_length, model_buffer_size, update_factor,
                  worker0_display=False):
         self.task_index = task_index
         self.cluster = cluster
@@ -168,12 +168,13 @@ class Worker:
         self.server = tf.train.Server(cluster, "worker", task_index)
         self.name = "/job:worker/task:{}".format(task_index)
         self.device = tf.train.replica_device_setter(worker_device=self.name, cluster=cluster)
-        self.trajectory_count = tf.Variable(0).assign_add(1)
+        self.episode_count = tf.Variable(0)
+        self.episode_count_inc = self.episode_count.assign_add(1)
         self.discount_factor = discount_factor
         self.epsilon_init = epsilon_init
         self.epsilon_decay = epsilon_decay
-        self.sequence_length = sequence_length
-        self.update_per_episode = update_per_episode
+        self.episode_length = episode_length
+        self.update_factor = update_factor
         self.model_lr = model_lr
         self.critic_lr = critic_lr
         self.buffer = Buffer(size=model_buffer_size)
@@ -460,8 +461,8 @@ class Worker:
             summary_images
         )
         ### Ops
-        self.train_step = tf.Variable(0, dtype=tf.int32)
-        self.train_step_inc = self.train_step.assign_add(1, use_locking=True)
+        self.update_count = tf.Variable(0, dtype=tf.int32)
+        self.update_count_inc = self.update_count.assign_add(1, use_locking=True)
         self.optimizer_autoencoder = tf.train.AdamOptimizer(self.model_lr, use_locking=True)
         self.optimizer_critic = tf.train.AdamOptimizer(self.critic_lr, use_locking=True)
         self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss)
@@ -486,20 +487,26 @@ class Worker:
             self.universe.sim.stopSimulator()
             raise e
 
-    def save(self, path):
+    def save_model(self, path):
         """Save a checkpoint on the hard-drive under path
         The Experiment class calls this methode on the worker 0 only
         """
         save_path = self.saver.save(self.sess, path + "/network.ckpt")
         self.pipe.send("{} saved model to {}".format(self.name, save_path))
 
-    def get_current_step(self):
-        """Returns the current model training step in the pipe
+    def get_current_update_count(self):
+        """Returns the current model training step (number of updates applied) in the pipe
         The Experiment class calls this methode on the worker 0 only
         """
-        self.pipe.send(self.sess.run(self.train_step))
+        self.pipe.send(self.sess.run(self.update_count))
 
-    def restore(self, path):
+    def get_current_episode_count(self):
+        """Returns the current model training step (number of episodes simulated) in the pipe
+        The Experiment class calls this methode on the worker 0 only
+        """
+        self.pipe.send(self.sess.run(self.episode_count))
+
+    def restore_model(self, path):
         """Restores from a checkpoint
         The Experiment class calls this methode on the worker 0 only
         """
@@ -551,7 +558,7 @@ class Worker:
         self.pipe.send(ret)
         return ret
 
-    def play_trajectory(self, greedy=False):
+    def playback_one_episode(self, greedy=False):
         """Performs one episode of fake training (for visualizing a trained agent in the simulator, see playback.py)
         The greedy boolean specifies wether the greedy or sampled policy should be used
         """
@@ -559,7 +566,7 @@ class Worker:
         self.reset_env()
         mean = 0
         total_reward__partial = 0
-        for iteration in range(self.sequence_length):
+        for iteration in range(self.episode_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
@@ -571,9 +578,9 @@ class Worker:
             mean += np.abs(vergence_error)
             print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward), end="\n")
             self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
-        print("mean abs vergence error: {:.4f}".format(mean / self.sequence_length))
+        print("mean abs vergence error: {:.4f}".format(mean / self.episode_length))
 
-    def get_trajectory(self):
+    def get_episode(self):
         """Get the training data that the RL algorithm needs,
         and stores trining infos in a buffer that must be flushed regularly
         See the help guide about data formats
@@ -597,13 +604,13 @@ class Worker:
             "critic_values": self.critic_values
         }
         self.reset_env()
-        trajectory = self.sess.run(self.trajectory_count)
+        episode_number = self.sess.run(self.episode_count_inc)
         scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
         total_reward__partial = np.zeros(shape=(), dtype=np.float32)
-        for iteration in range(self.sequence_length):
+        for iteration in range(self.episode_length):
             left_image, right_image = self.robot.receiveImages()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-            if iteration < self.sequence_length:
+            if iteration < self.episode_length:
                 ret = self.sess.run(fetches_store, feed_dict)
                 ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
                 scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
@@ -616,7 +623,7 @@ class Worker:
                 object_distance = self.screen.distance
                 eyes_position = self.robot.getEyePositions()
                 eyes_speed = (self.tilt_delta, self.pan_delta)
-                self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, trajectory, scale_reward, total_reward)
+                self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, episode_number, scale_reward, total_reward)
             else:
                 ret = self.sess.run(fetches, feed_dict)
             states.append({r: ret["scales_inp"][r][0] for r in self.ratios})
@@ -624,17 +631,17 @@ class Worker:
             # actions.append(ret["greedy_actions_indices"])
             self.apply_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
         self.buffer.incorporate((states, actions))
-        return states, actions
+        return episode_number
 
-    def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration, trajectory, scale_reward, total_reward):
+    def store_data(self, ret, object_distance, eyes_position, eyes_speed, iteration, episode_number, scale_reward, total_reward):
         """Constructs a dictionary from data and store it in a buffer
         See the help guide about data formats
         """
         data = {
             "worker": np.squeeze(np.array(self.task_index)),
-            "trajectory": np.squeeze(np.array(trajectory)),
+            "episode_number": np.squeeze(np.array(episode_number)),
             "iteration": np.squeeze(np.array(iteration)),
-            "global_iteration": np.squeeze(np.array(trajectory * self.sequence_length + iteration)),
+            "global_iteration": np.squeeze(np.array(episode_number * self.episode_length + iteration)),
             "total_reward": np.squeeze(total_reward),
             "scale_rewards": np.squeeze(scale_reward),
             "greedy_actions_indices": np.squeeze(np.array([ret["greedy_actions_indices"][k] for k in ["tilt", "pan", "vergence"]])),
@@ -740,69 +747,71 @@ class Worker:
         negative = -positive[::-1]
         self.action_set_vergence = np.concatenate([negative, [0], positive])
 
-    def train(self):
-        """Collects data in the simulator (see get_trajectory)
-        And updates the networks weights self.update_per_episode times by taking self.update_per_episode trajectories
-        from the replay buffer
+    def train_one_episode(self, states, actions):
+        """Updates the networks weights according to the transitions states and actions
         """
-        # Simulate a trajectory and place the data in the replay buffer
-        self.get_trajectory()
-        # Get self.update_per_episode trajectories from the replay buffer
-        transitions = self.buffer.batch(self.update_per_episode)
-        for states, actions in transitions:
-            fetches = {
-                "ops": [self.train_op, self.epsilon_update],
-                "summary": self.summary,
-                "step": self.train_step_inc,
-                "autoencoder_loss": self.autoencoder_loss,
-                "epsilon": self.epsilon
-            }
-            feed_dict = {self.scales_inp[r]: [s[r] for s in states] for r in self.ratios}
-            for jn in ["tilt", "pan", "vergence"]:
-                feed_dict[self.picked_actions[jn]] = [a[jn][0] for a in actions]
-            ret = self.sess.run(fetches, feed_dict=feed_dict)
-            if self._update_number % 20 == 0:
-                self.summary_writer.add_summary(ret["summary"], global_step=ret["step"])
-            print("{} update {}\tautoencoder loss:  {:6.3f}\t\tepsilon {:.2f}".format(
-                self.name,
-                ret["step"],
-                ret["autoencoder_loss"],
-                ret["epsilon"]))
-            self._update_number += 1
-        return ret["step"]
+        fetches = {
+            "ops": [self.train_op, self.epsilon_update, self.update_count_inc],
+            "summary": self.summary,
+            "episode_count": self.episode_count,
+            "autoencoder_loss": self.autoencoder_loss,
+            "epsilon": self.epsilon
+        }
+        feed_dict = {self.scales_inp[r]: [s[r] for s in states] for r in self.ratios}
+        for jn in ["tilt", "pan", "vergence"]:
+            feed_dict[self.picked_actions[jn]] = [a[jn][0] for a in actions]
+        ret = self.sess.run(fetches, feed_dict=feed_dict)
+        if self._update_number % 20 == 0:
+            self.summary_writer.add_summary(ret["summary"], global_step=ret["episode_count"])
+        print("{} simulated episode {}\tautoencoder loss:  {:6.3f}\t\tepsilon {:.2f}".format(
+            self.name,
+            ret["episode_count"],
+            ret["autoencoder_loss"],
+            ret["epsilon"]))
+        self._update_number += 1
+        return ret["episode_count"]
 
-    def start_training(self, n_updates):
-        """Calls the train function n_updates times
+    def train(self, n_episodes):
+        """Train until n_episodes have been simulated
+        See the update_factor parameter
         """
-        step = self.sess.run(self.train_step)
-        n_updates += step
-        while step < n_updates - self._n_workers:
-            step = self.train()
+        before_n_episodes = self.sess.run(self.episode_count)
+        current_n_episode = before_n_episodes
+        after_n_episode = before_n_episodes + n_episodes
+        print("{} debug -- train sees before_n_episodes = {} after_n_episode = {}".format(self.name, before_n_episodes, after_n_episode))
+        while current_n_episode < after_n_episode:
+            current_n_episode = self.get_episode()
+            transitions = self.buffer.batch(self.update_factor)
+            for states, actions in transitions:
+                current_n_episode = self.train_one_episode(states, actions)
+                if current_n_episode >= after_n_episode:
+                    break
         self.pipe.send("{} going IDLE".format(self.name))
 
-    def start_playback(self, n_trajectories, greedy=False):
-        """Calls the play_trajectory methode n_trajectories times
+    def playback(self, n_episodes, greedy=False):
+        """Calls the playback_one_episode methode n_episodes times
         """
-        for i in range(n_trajectories):
-            self.play_trajectory(greedy=greedy)
-            print("{} trajectory {}/{}".format(self.name, i, n_trajectories))
+        for i in range(n_episodes):
+            self.playback_one_episode(greedy=greedy)
+            print("{} episode {}/{}".format(self.name, i, n_episodes))
         self.pipe.send("{} going IDLE".format(self.name))
 
-    def run_video(self, path, n_sequences, training=False):
-        """Generates a video, to be stored under path, concisting of n_sequences
+    def make_video(self, path, n_episodes, training=False):
+        """Generates a video, to be stored under path, concisting of n_episodes
         """
         fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
+        rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
-            for sequence_number in range(n_sequences):
-                print("{} trajectory {}/{}".format(self.name, sequence_number + 1, n_sequences))
+            for episode_number in range(n_episodes):
+                print("{} episode {}/{}".format(self.name, episode_number + 1, n_episodes))
                 self.reset_env()
-                for iteration in range(self.sequence_length):
+                for iteration in range(self.episode_length):
                     left_image, right_image = self.robot.receiveImages()
                     object_distance = self.screen.distance
                     vergence = self.robot.getEyePositions()[-1]
                     vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, sequence_number + 1, n_sequences)
+                    frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
                     writer.append_data(frame)
                     if iteration == 0:
                         for i in range(24):
@@ -900,15 +909,15 @@ class Experiment:
         # self.entropy_reg = args.entropy_reg
         # self.entropy_reg_decay = args.entropy_reg_decay
         # self.discount_factor = 0
-        # self.sequence_length = args.sequence_length
-        # self.update_per_episode = args.update_per_episode
+        # self.episode_length = args.episode_length
+        # self.update_factor = args.update_factor
         # self.buffer_size = 20
         ### WORKER INIT
         # model_lr, critic_lr, actor_lr,
         # discount_factor, entropy_coef, entropy_coef_decay,
-        # sequence_length,
+        # episode_length,
         # model_buffer_size,
-        # update_per_episode,
+        # update_factor,
         # worker0_display=False
         worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, self.ports[task_index],
             self.worker_conf.mlr,
@@ -916,9 +925,9 @@ class Experiment:
             self.worker_conf.discount_factor,
             self.worker_conf.epsilon,
             self.worker_conf.epsilon_decay,
-            self.worker_conf.sequence_length,
+            self.worker_conf.episode_length,
             self.worker_conf.buffer_size,
-            self.worker_conf.update_per_episode,
+            self.worker_conf.update_factor,
             self.worker0_display)
         worker.wait_for_variables_initialization()
         worker()
@@ -946,17 +955,21 @@ class Experiment:
             while p.is_alive():
                 time.sleep(0.1)
 
-    def asynchronously_train(self, n_updates):
+    def train(self, n_updates):
         for p in self.here_pipes:
-            p.send(("start_training", n_updates))
+            p.send(("train", n_updates))
         for p in self.here_pipes:
             p.recv()
 
-    def get_current_step(self):
-        self.here_pipes[0].send(("get_current_step", ))
+    def get_current_update_count(self):
+        self.here_pipes[0].send(("get_current_update_count", ))
         return self.here_pipes[0].recv()
 
-    def asynchronously_test(self, test_conf_path, chunks_size=10, outpath=None):
+    def get_current_episode_count(self):
+        self.here_pipes[0].send(("get_current_episode_count", ))
+        return self.here_pipes[0].recv()
+
+    def test(self, test_conf_path, chunks_size=10, outpath=None):
         # generate list_of_test_cases
         with open(test_conf_path, "rb") as f:
             list_of_test_cases = pickle.load(f)["test_cases"]
@@ -969,18 +982,18 @@ class Experiment:
             test_data = p.recv()
             test_data_summary += test_data
         # get the current iteration...
-        current_step = self.get_current_step()
+        current_episode_count = self.get_current_episode_count()
         # store the data
         path = self.testdatadir if outpath is None else outpath
         test_conf_basename = os.path.basename(test_conf_path)
         test_conf_name = os.path.splitext(test_conf_basename)[0]
-        path = path + "/{}_{}.pkl".format(current_step, test_conf_name)
+        path = path + "/{}_{}.pkl".format(current_episode_count, test_conf_name)
         with open(path, "wb")as f:
             pickle.dump(test_data_summary, f)
 
-    def playback(self, n_trajectories, greedy=False):
+    def playback(self, n_episodes, greedy=False):
         for p in self.here_pipes:
-            p.send(("start_playback", n_trajectories, greedy))
+            p.send(("playback", n_episodes, greedy))
         for p in self.here_pipes:
             p.recv()
 
@@ -990,24 +1003,22 @@ class Experiment:
         for p in self.here_pipes:
             p.recv()
 
-    def save_model(self, name):
+    def save_model(self, name=None):
+        name = "{:08d}".format(self.get_current_episode_count()) if name is None else name
         path = self.checkpointsdir + "/{}/".format(name)
         os.mkdir(path)
-        self.here_pipes[0].send(("save", path))
+        self.here_pipes[0].send(("save_model", path))
         print(self.here_pipes[0].recv())
 
-    def save_video(self, name, n_sequences, training=False, outpath=None):
+    def make_video(self, name, n_episodes, training=False, outpath=None):
         path = self.videodir if outpath is None else outpath
         path += "/{}.mp4".format(name)
-        self.here_pipes[0].send(("run_video", path, n_sequences, training))
+        self.here_pipes[0].send(("make_video", path, n_episodes, training))
         print(self.here_pipes[0].recv())
 
     def restore_model(self, path):
-        self.here_pipes[0].send(("restore", path))
+        self.here_pipes[0].send(("restore_model", path))
         print(self.here_pipes[0].recv())
-        # for p in self.here_pipes:
-        #     p.send(("restore", path))
-        #     print(p.recv())
 
     def close_workers(self):
         for p in self.here_pipes:
@@ -1083,28 +1094,28 @@ if __name__ == "__main__":
     parser.add_argument(
         '-fe', '--flush-every',
         type=int,
-        help="Flush every N simulated trajectory.",
-        default=50000
+        help="Flush every N simulated episode.",
+        default=5000
     )
 
     parser.add_argument(
-        '-nt', '--n-trajectories',
+        '-ne', '--n-episodes',
         type=int,
-        help="Number of trajectories to be simulated.",
-        default=1000000
+        help="Number of episodes to be simulated.",
+        default=100000
     )
 
     parser.add_argument(
-        '-sl', '--sequence-length',
+        '-el', '--episode-length',
         type=int,
         help="Length of an episode.",
         default=10
     )
 
     parser.add_argument(
-        '-u', '--update-per-episode',
+        '-u', '--update-factor',
         type=int,
-        help="Number of updates per gathered trajectory.",
+        help="Number of updates per simulated episode.",
         default=10
     )
 
@@ -1162,18 +1173,18 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
-    test_at = args.update_per_episode * np.array([10000, 30000, 50000, 70000, 150000]) // args.flush_every
+    test_at = np.array([5000, 10000, 20000, 30000, 50000, 75000, 100000, 150000]) // args.flush_every
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
             exp.restore_model(args.restore_from)
         if args.tensorboard:
             exp.start_tensorboard()
-        for i in range(args.n_trajectories // args.flush_every):
+        for i in range(args.n_episodes // args.flush_every):
             if i in test_at:
-                exp.save_model("{:08d}".format(i * args.flush_every))
-                exp.asynchronously_test("../test_conf/vergence_trajectory_4_distances.pkl")
-            exp.asynchronously_train(args.flush_every)
+                exp.save_model()
+                exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+            exp.train(args.flush_every)
             exp.flush_data()
-        exp.save_model("{:08d}".format((i + 1) * args.flush_every))
-        exp.asynchronously_test("../test_conf/vergence_trajectory_4_distances.pkl")
+        exp.save_model()
+        exp.test("../test_conf/vergence_trajectory_4_distances.pkl")

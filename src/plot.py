@@ -19,7 +19,7 @@ from asynchronous import Conf
 warnings.filterwarnings("ignore")
 
 keys = [
-    "trajectory",
+    "episode_number",
     "scale_rewards",
     "actions",
     "scale_critic_values",
@@ -84,14 +84,14 @@ def get_data_nonmerged(path, flush_id=None):
         return data
 
 
-def group_by_trajectory(data):
+def group_by_episode(data):
     length = len(data["worker"])
-    dtype = np.dtype([("worker", data["worker"].dtype), ("trajectory", data["trajectory"].dtype), ("iteration", data["iteration"].dtype)])
+    dtype = np.dtype([("worker", data["worker"].dtype), ("episode_number", data["episode_number"].dtype), ("iteration", data["iteration"].dtype)])
     vals = np.empty(length, dtype=dtype)
     vals["worker"] = data["worker"]
-    vals["trajectory"] = data["trajectory"]
+    vals["episode_number"] = data["episode_number"]
     vals["iteration"] = data["iteration"]
-    args = np.argsort(vals, order=("trajectory", "worker", "iteration"))
+    args = np.argsort(vals, order=("episode_number", "worker", "iteration"))
     traj_length = np.max(data["iteration"]) + 1
     data = {k: v[args].reshape([-1, traj_length] + list(v.shape[1:])) for k, v in data.items()}
     return data
@@ -168,7 +168,7 @@ class MidPointNorm(Normalize):
 
 def delta_reward_wrt_delta_vergence(data, save=False):
     gridsize = 100
-    data = group_by_trajectory(data)
+    data = group_by_episode(data)
     n_trajectories = len(data["iteration"])
     fig = plt.figure()
     vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
@@ -313,7 +313,7 @@ def action_wrt_vergence_based_on_critic(data, min_dist, max_dist, scale, save=Fa
 
 def preference_for_correct_action(data, scale="all", save=False):
     fig = plt.figure()
-    data = group_by_trajectory(data)
+    data = group_by_episode(data)
     vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
     if scale == "all":
         values = data["critic_values_vergence"]
@@ -338,13 +338,13 @@ def preference_for_correct_action(data, scale="all", save=False):
 def vergence_error_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    # sequence_length = max([d["iteration"] for d in data])
-    # data = [d for d in data if d["iteration"] == sequence_length]
-    data = group_by_trajectory(data)
+    # episode_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == episode_length]
+    data = group_by_episode(data)
     data = {k: v[:, -1] for k, v in data.items()}
-    trajectory = data["trajectory"]
+    episode_numbers = data["episode_number"]
     vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
-    ax.plot(trajectory, vergence_errors, ".", alpha=0.05)
+    ax.plot(episode_numbers, vergence_errors, ".", alpha=0.05)
     ax.set_xlabel("episode")
     ax.set_ylabel("vergence error in degrees")
     ax.set_title("vergence error wrt time")
@@ -358,20 +358,20 @@ def vergence_error_episode_end_wrt_episode(data, save=False):
 def mean_abs_vergence_error_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    # sequence_length = max([d["iteration"] for d in data])
-    # data = [d for d in data if d["iteration"] == sequence_length]
-    data = group_by_trajectory(data)
+    # episode_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == episode_length]
+    data = group_by_episode(data)
     data = {k: v[:, -1] for k, v in data.items()}
-    trajectory = data["trajectory"]
+    episode_numbers = data["episode_number"]
     vergence_errors = vergence_error(data["eyes_position"], data["object_distance"])
     abs_vergence_errors = np.array(np.abs(vergence_errors))
-    args = np.argsort(trajectory)
-    trajectory = trajectory[args]
+    args = np.argsort(episode_numbers)
+    episode_numbers = episode_numbers[args]
     abs_vergence_errors = abs_vergence_errors[args]
     for win in [500]:
-        mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(trajectory < x + win, trajectory > x - win))]) for x in trajectory]
+        mean_abs_vergence_errors = [np.mean(abs_vergence_errors[np.where(np.logical_and(episode_numbers < x + win, episode_numbers > x - win))]) for x in episode_numbers]
         smooth = savgol_filter(mean_abs_vergence_errors, 21, 3)
-        ax.plot(trajectory, smooth, "-", lw=2, label="+-{}".format(win))
+        ax.plot(episode_numbers, smooth, "-", lw=2, label="+-{}".format(win))
     ax.axhline(90 / 320, color="k", linestyle="--")
     ax.legend()
     ax.set_xlabel("episode")
@@ -388,16 +388,16 @@ def mean_abs_vergence_error_episode_end_wrt_episode(data, save=False):
 def vergence_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    # sequence_length = max([d["iteration"] for d in data])
-    # data = [d for d in data if d["iteration"] == sequence_length]
-    data = group_by_trajectory(data)
+    # episode_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == episode_length]
+    data = group_by_episode(data)
     data = {k: v[:, -1] for k, v in data.items()}
-    trajectory = data["trajectory"]
+    episode_numbers = data["episode_number"]
     vergence = data["eyes_position"][:, -1]
-    args = np.argsort(trajectory)
-    trajectory = trajectory[args]
+    args = np.argsort(episode_numbers)
+    episode_numbers = episode_numbers[args]
     vergence = vergence[args]
-    ax.scatter(trajectory, vergence, alpha=0.1)
+    ax.scatter(episode_numbers, vergence, alpha=0.1)
     ax.set_xlabel("episode")
     ax.set_ylabel("vergence position in degrees")
     ax.set_title("vergence wrt time")
@@ -409,9 +409,8 @@ def vergence_episode_end_wrt_episode(data, save=False):
 
 
 def vergence_wrt_object_distance(data, save=False):
-    data = group_by_trajectory(data)
+    data = group_by_episode(data)
     data = {k: v[:, -1] for k, v in data.items()}
-    trajectory = data["trajectory"]
     fig = plt.figure()
     ax = fig.add_subplot(111)
     object_distance = data["object_distance"]
@@ -497,7 +496,7 @@ if __name__ == "__main__":
 
 
         print("preference for correct action")
-        for i in range(8):
+        for i in range(3):
             preference_for_correct_action(data, scale=i, save=args.save)
         preference_for_correct_action(data, save=args.save)
         print("action_wrt_vergence:")
@@ -506,7 +505,7 @@ if __name__ == "__main__":
         action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
         print("vergence_wrt_object_distance:")
         vergence_wrt_object_distance(data, args.save)
-        for i in range(8):
+        for i in range(3):
             action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
 
         # print("v shape")
