@@ -47,7 +47,7 @@ anaglyph_matrix = np.array([
     ])
 
 
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number):
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles):
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
@@ -56,6 +56,8 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     image = Image.fromarray(image)
     # create a drawer form writing text on the frame
     drawer = ImageDraw.Draw(image)
+    for rec in rectangles:
+        drawer.rectangle(rec, outline=(50, 0, 50, 50))
     string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
         object_distance, vergence_error, episode_number, total_episode_number
     )
