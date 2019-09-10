@@ -1,5 +1,4 @@
 import sys
-import vrep
 from tempfile import TemporaryDirectory
 import png
 from replay_buffer import Buffer
@@ -16,7 +15,7 @@ import os
 import filelock
 from PIL import Image
 import vbridge as vb
-import RESSOURCES
+from utils import to_angle
 import pickle
 from itertools import cycle, islice, product
 from imageio import get_writer
@@ -200,29 +199,7 @@ class Worker:
             self.sess.run(tf.global_variables_initializer())
             print("{} variables initialized".format(self.name))
         # starting VREP
-        self.universe = vb.Universe(task_index == 0 and worker0_display, port=simulator_port)
-        self.robot = self.universe.robot
-        resA, resolution, imgCamLeft = vrep.simxGetVisionSensorImageFast(self.robot.sim.clientID,
-                                                                         self.robot.sim.handles["camLeft"],
-                                                                         not self.robot.rgbEyes,
-                                                                         vrep.simx_opmode_blocking)
-        # simple security mechanism to check that the camaras are working (useless most of the time)
-        while imgCamLeft is None:
-            print("{} cameras return None ... waiting 1 sec".format(self.name))
-            time.sleep(1)
-            resA, resolution, imgCamLeft = vrep.simxGetVisionSensorImageFast(self.robot.sim.clientID,
-                                                                            self.robot.sim.handles["camLeft"],
-                                                                            not self.robot.rgbEyes,
-                                                                            vrep.simx_opmode_blocking)
-        # load textures in the ram memory
-        self.textures = get_textures("/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/")
-        # create a screen
-        self.screen = vb.ConstantSpeedScreen(self.universe.sim, (0.5, 5), 0.0, 0, self.textures)
-        # put the screen behind the robot
-        self.screen.set_positions(-2, 0, 0)
-        # set the eye speeds to 0.0 deg/iteration
-        self.tilt_delta = 0.0
-        self.pan_delta = 0.0
+        self.environment = Environment(headless=task_index != 0 or not worker0_display)
 
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts to float32 a central region of the camera images
@@ -486,7 +463,7 @@ class Worker:
                 cmd = self.pipe.recv()
         except Exception as e:
             print("{} caught exception in worker".format(self.name))
-            self.universe.sim.stopSimulator()
+            self.environment.close()
             raise e
 
     def save_model(self, path):
@@ -530,20 +507,17 @@ class Worker:
             "action_index": self.greedy_actions_indices
         }
         for test_case in chunk_of_test_cases:
-            vergence_init = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * test_case["object_distance"])) * 2 + test_case["vergence_error"]
-            self.robot.setEyePositions((0, 0, vergence_init))
-            self.screen.set_texture_by_index(test_case["stimulus"])
-            self.screen.set_movement(test_case["object_distance"], 0, 0, 0, test_case["speed_error"][0], test_case["speed_error"][1])
-            self.screen.put_to_position()
+            vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+            self.environment.robot.set_position([0, 0, vergence_init])
+            self.environment.screen.set_texture(test_case["stimulus"])
+            self.environment.screen.set_trajectory(
+                test_case["object_distance"],
+                test_case["speed_error"][0],
+                test_case["speed_error"][1])
             test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
             for i in range(test_case["n_iterations"]):
-                eye_position = self.robot.getEyePositions()
-                vergence = eye_position[-1]
-                vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * test_case["object_distance"])) * 2 - vergence
-                # print("vergence_error:  ", vergence_error, "object_distance:    ", test_case["object_distance"], self.screen.distance)
-                left_image, right_image = self.robot.receiveImages()
-                feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-                data = self.sess.run(fetches, feed_dict)
+                left_image, right_image = self.environment.robot.get_vision()
+                data = self.sess.run(fetches, feed_dict={self.left_cam: [left_image], self.right_cam: [right_image]})
                 action = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
                 test_data[i]["action_index"] = action
                 test_data[i]["action_value"] = (self.action_set_tilt[action[0]], self.action_set_pan[action[1]], self.action_set_vergence[action[2]])
@@ -551,11 +525,12 @@ class Worker:
                 test_data[i]["critic_value_pan"] = data["critic_value"]["pan"]
                 test_data[i]["critic_value_vergence"] = data["critic_value"]["vergence"]
                 test_data[i]["total_reconstruction_error"] = data["total_reconstruction_error"]
-                test_data[i]["eye_position"] = eye_position
-                test_data[i]["eye_speed"] = (self.tilt_delta, self.pan_delta)
+                test_data[i]["eye_position"] = self.environment.robot.position
+                test_data[i]["eye_speed"] = self.environment.robot.speed
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
-                test_data[i]["vergence_error"] = vergence_error
-                self.apply_action(action)
+                test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
+                self.environment.robot.set_action(action)
+                self.environment.step()
             ret.append((test_case, test_data))
         self.pipe.send(ret)
         return ret
@@ -565,21 +540,21 @@ class Worker:
         The greedy boolean specifies wether the greedy or sampled policy should be used
         """
         fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
-        self.reset_env()
+        self.environment.episode_reset()
         mean = 0
         total_reward__partial = 0
         for iteration in range(self.episode_length):
-            left_image, right_image = self.robot.receiveImages()
+            left_image, right_image = self.environment.robot.get_vision()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
             reward = total_reward__partial - total_reward__partial_new[0]
             total_reward__partial = total_reward__partial_new[0]
-            object_distance = self.screen.distance
-            vergence = self.robot.getEyePositions()[-1]
-            vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
+            object_distance = self.environment.screen.distance
+            vergence_error = self.environment.robot.get_vergence_error(object_distance)
             mean += np.abs(vergence_error)
             print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward), end="\n")
-            self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+            self.environment.robot.set_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+            self.environment.step()
         print("mean abs vergence error: {:.4f}".format(mean / self.episode_length))
 
     def get_episode(self):
@@ -605,12 +580,12 @@ class Worker:
             "scale_values": self.scale_values,
             "critic_values": self.critic_values
         }
-        self.reset_env()
+        self.environment.episode_reset()
         episode_number = self.sess.run(self.episode_count_inc)
         scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
         total_reward__partial = np.zeros(shape=(), dtype=np.float32)
         for iteration in range(self.episode_length):
-            left_image, right_image = self.robot.receiveImages()
+            left_image, right_image = self.environment.robot.get_vision()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             if iteration < self.episode_length:
                 ret = self.sess.run(fetches_store, feed_dict)
@@ -622,16 +597,17 @@ class Worker:
                 total_reward = total_reward__partial - total_reward__partial_new
                 total_reward__partial = total_reward__partial_new
                 ###
-                object_distance = self.screen.distance
-                eyes_position = self.robot.getEyePositions()
-                eyes_speed = (self.tilt_delta, self.pan_delta)
+                object_distance = self.environment.screen.distance
+                eyes_position = self.environment.robot.position
+                eyes_speed = self.environment.robot.speed
                 self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, episode_number, scale_reward, total_reward)
             else:
                 ret = self.sess.run(fetches, feed_dict)
             states.append({r: ret["scales_inp"][r][0] for r in self.ratios})
             actions.append(ret["sampled_actions_indices"])
             # actions.append(ret["greedy_actions_indices"])
-            self.apply_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
+            self.environment.robot.set_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
+            self.environment.step()
         self.buffer.incorporate((states, actions))
         return episode_number
 
@@ -676,61 +652,6 @@ class Worker:
         self.end_episode_data.clear()
         self._flush_id += 1
         self.pipe.send("{} flushed data on the hard drive".format(self.name))
-
-    def apply_action(self, action):
-        """Applies an action in the simulator, moves the screen if needed.
-        The vergence joint angle is cliped between -8 and 0 degrees.
-        """
-        tilt, pan, verg = action
-        tilt_pos, pan_pos, verg_pos = self.robot.getEyePositions()
-        self.tilt_delta += self.action_set_tilt[tilt]
-        self.pan_delta += self.action_set_pan[pan]
-        tilt_new_pos = tilt_pos + self.tilt_delta
-        pan_new_pos = pan_pos + self.pan_delta
-        verg_new_pos = np.clip(verg_pos + self.action_set_vergence[verg], -8, 0)
-        self.robot.setEyePositions((tilt_new_pos, pan_new_pos, verg_new_pos))
-        self.screen.iteration_init()
-        self.universe.sim.stepSimulation()
-
-    def apply_action_with_reset(self, action):
-        """Applies an action in the simulator, moves the screen if needed.
-        The vergence joint angle is reset to a random value when exceeding -8 or 0 degrees.
-        """
-        tilt, pan, verg = action
-        tilt_pos, pan_pos, verg_pos = self.robot.getEyePositions()
-        self.tilt_delta += self.action_set_tilt[tilt]
-        self.pan_delta += self.action_set_pan[pan]
-        tilt_new_pos = tilt_pos + self.tilt_delta
-        pan_new_pos = pan_pos + self.pan_delta
-        verg_new_pos = verg_pos + self.action_set_vergence[verg]
-        if verg_new_pos >= 0 or verg_new_pos <= -8:
-            random_distance = np.random.uniform(low=0.5, high=5)
-            verg_new_pos = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
-            perfect_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * self.screen.distance)) * 360 / np.pi
-            random_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
-            one_pixel_in_angle = 90 / 320
-            verg_new_pos = perfect_vergence + np.round((random_vergence - perfect_vergence) / one_pixel_in_angle) * one_pixel_in_angle
-        self.robot.setEyePositions((tilt_new_pos, pan_new_pos, verg_new_pos))
-        self.screen.iteration_init()
-        self.universe.sim.stepSimulation()
-
-    def reset_env(self):
-        """Places the screen at a random distance
-        Sets the eye position to a random vergance angle (random uniform distance sampling)
-        Resets the tilt/pan speed of the eyes to 0 degrees per iteration
-        """
-        self.screen.episode_init()
-        random_distance = np.random.uniform(low=0.5, high=5)
-        # random_distance = self.screen.distance
-        perfect_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * self.screen.distance)) * 360 / np.pi
-        random_vergence = -np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * random_distance)) * 360 / np.pi
-        # one_pixel_in_angle = 0.28
-        one_pixel_in_angle = 90 / 320
-        random_vergence = perfect_vergence + np.round((random_vergence - perfect_vergence) / one_pixel_in_angle) * one_pixel_in_angle
-        self.robot.setEyePositions((0.0, 0.0, random_vergence))
-        self.tilt_delta = 0.0
-        self.pan_delta = 0.0
-        self.universe.sim.stepSimulation()
 
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
@@ -807,12 +728,11 @@ class Worker:
         with get_writer(path, fps=25, format="mp4") as writer:
             for episode_number in range(n_episodes):
                 print("{} episode {}/{}".format(self.name, episode_number + 1, n_episodes))
-                self.reset_env()
+                self.environment.episode_reset()
                 for iteration in range(self.episode_length):
-                    left_image, right_image = self.robot.receiveImages()
-                    object_distance = self.screen.distance
-                    vergence = self.robot.getEyePositions()[-1]
-                    vergence_error = - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distance)) * 2 - vergence
+                    left_image, right_image = self.environment.robot.get_vision()
+                    object_distance = self.environment.screen.distance
+                    vergence_error = self.environment.robot.get_vergence_error(object_distance)
                     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
                     writer.append_data(frame)
                     if iteration == 0:
@@ -820,7 +740,8 @@ class Worker:
                             writer.append_data(frame)
                     feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                     ret = self.sess.run(fetches, feed_dict)
-                    self.apply_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+                    self.environment.robot.set_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+                    self.environment.step()
                     print("vergence error: {:.4f}".format(vergence_error))
         self.pipe.send("{} going IDLE".format(self.name))
 

@@ -6,11 +6,7 @@ from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.shape import Shape
 from pyrep.objects.joint import Joint
 import numpy as np
-import RESSOURCES
-
-
-deg = np.rad2deg
-rad = np.deg2rad
+from utils import deg, rad, to_angle
 
 
 class SquaredPlane(Shape):
@@ -35,14 +31,25 @@ class RandomScreen(SquaredPlane):
         self.max_speed = rad(max_speed_in_deg)
         self.episode_reset()
 
-    def set_texture(self):
-        super().set_texture(self.textures_list[np.random.randint(len(self.textures_list))])
+    def set_texture(self, index=None):
+        if index is None:
+            super().set_texture(self.textures_list[np.random.randint(len(self.textures_list))])
+        else:
+            super().set_texture(self.textures_list[index])
 
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
         self.speed = np.random.uniform(0, self.max_speed)
         self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
+        self.set_episode_iteration(0)
+
+    def set_trajectory(self, distance, tilt_speed, pan_speed):
+        self.distance = 0
+        self.speed = np.sqrt(tilt_speed ** 2 + pan_speed ** 2)
+        self.direction = np.arccos(pan_speed / self.speed)
+        if tilt_speed < 0:
+            self.direction = -self.direction
         self.set_episode_iteration(0)
 
     def set_episode_iteration(self, it):
@@ -123,12 +130,10 @@ class StereoVisionRobot:
         ### reset joints position / speeds
         self._tilt_speed = 0
         self._pan_speed = 0
-        self.pan_right.set_joint_position(0)
-        self.pan_left.set_joint_position(0)
         self.tilt_right.set_joint_position(0)
         self.tilt_left.set_joint_position(0)
         fixation_distance = np.random.uniform(self.min_distance, self.max_distance)
-        random_vergence = np.arctan(RESSOURCES.Y_EYES_DISTANCE / (2 * fixation_distance))
+        random_vergence = to_angle(fixation_distance)
         self.pan_left.set_joint_position(random_vergence / 2)
         self.pan_right.set_joint_position(-random_vergence / 2)
 
@@ -146,11 +151,25 @@ class StereoVisionRobot:
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
+    def set_vergence_position(self, alpha):
+        rad_alpha = rad(alpha)
+        mean = (self.pan_right.get_joint_position() + self.pan_left.get_joint_position()) / 2
+        left, right = self._check_pan_limit(mean + rad_alpha / 2, mean - rad_alpha / 2)
+        self.pan_left.set_joint_position(left)
+        self.pan_right.set_joint_position(right)
+
     def set_delta_vergence_position(self, delta):
         rad_delta = rad(delta)
         left, right = self._check_pan_limit(
             self.pan_left.get_joint_position() + rad_delta / 2,
             self.pan_right.get_joint_position() - rad_delta / 2)
+        self.pan_left.set_joint_position(left)
+        self.pan_right.set_joint_position(right)
+
+    def set_pan_position(self, alpha):
+        rad_alpha = rad(alpha)
+        vergence = self.pan_left.get_joint_position() - self.pan_right.get_joint_position()
+        left, right = self._check_pan_limit(vergence + rad_alpha, vergence + rad_alpha)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
@@ -161,6 +180,12 @@ class StereoVisionRobot:
             self.pan_right.get_joint_position() + self._pan_speed)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
+
+    def set_tilt_position(self, alpha):
+        rad_alpha = rad(alpha)
+        left, right = self._check_tilt_limit(rad_alpha, rad_alpha)
+        self.tilt_left.set_joint_position(left)
+        self.tilt_right.set_joint_position(right)
 
     def set_delta_tilt_speed(self, delta):
         self._tilt_speed += rad(delta)
@@ -179,16 +204,30 @@ class StereoVisionRobot:
     def get_vergence_position(self):
         return deg(self.pan_left.get_joint_position() - self.pan_right.get_joint_position())
 
+    def get_position(self):
+        return self.tilt_position, self.pan_position, self.vergence_position
+
+    def get_vergence_error(self, other_distance):
+        return to_angle(other_distance) - self.vergence_position
+
     def get_tilt_speed(self):
         return deg(self._tilt_speed)
 
     def get_pan_speed(self):
         return deg(self._pan_speed)
 
+    def get_speed(self):
+        return self.tilt_speed, self.pan_speed
+
     def set_action(self, action):
-        self.set_delta_vergence_position(action[0])
+        self.set_delta_tilt_speed(action[0])
         self.set_delta_pan_speed(action[1])
-        self.set_delta_tilt_speed(action[2])
+        self.set_delta_vergence_position(action[2])
+
+    def set_position(self, position):
+        self.set_tilt_position(position[0])
+        self.set_pan_position(position[1])
+        self.set_vergence_position(position[2])
 
     def get_vision(self):
         return self.cam_left.capture_rgb(), self.cam_right.capture_rgb()
@@ -196,8 +235,10 @@ class StereoVisionRobot:
     tilt_position = property(get_tilt_position)
     pan_position = property(get_pan_position)
     vergence_position = property(get_vergence_position)
+    position = property(get_position)
     tilt_speed = property(get_tilt_speed)
     pan_speed = property(get_pan_speed)
+    speed = property(get_speed)
 
 
 if __name__ == "__main__":

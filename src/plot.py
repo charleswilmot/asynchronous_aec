@@ -3,7 +3,7 @@ from matplotlib import cbook
 from matplotlib.cm import seismic
 from matplotlib.colors import ListedColormap, Normalize
 from collections import defaultdict
-import RESSOURCES
+from utils import to_angle
 from scipy.stats import linregress, gaussian_kde, binned_statistic
 from scipy.signal import savgol_filter
 import os
@@ -99,7 +99,7 @@ def group_by_episode(data):
 
 def vergence_error(eyes_positions, object_distances):
     vergences = eyes_positions[..., -1]
-    return - np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * object_distances)) * 2 - vergences
+    return to_angle(object_distances) - vergences
 
 
 class MidPointNorm(Normalize):
@@ -417,7 +417,7 @@ def vergence_wrt_object_distance(data, save=False):
     vergence = data["eyes_position"][:, -1]
     rewards = data["total_reward"]
     X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
-    correct = -np.degrees(np.arctan2(RESSOURCES.Y_EYES_DISTANCE, 2 * X)) * 2
+    correct = to_angle(X)
     ax.scatter(object_distance, vergence, alpha=0.1)
     ax.plot(X, correct, "k-")
     ax.set_xlabel("object position in meters")
