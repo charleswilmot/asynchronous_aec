@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 #SBATCH --partition sleuths
-#SBATCH --gres gpu:1
+#SBATCH --gres gpu:3
 #SBATCH -LXserver
-#SBATCH --mincpus 52
-#SBATCH --mem=42000
-#SBATCH --reservation triesch-shared
+#SBATCH --mincpus 46
+#SBATCH --mem=90000
+##SBATCH --reservation triesch-shared
 
 ##SBATCH --exclude springtalk
 

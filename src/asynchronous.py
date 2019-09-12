@@ -14,8 +14,8 @@ import time
 import os
 import filelock
 from PIL import Image
-import vbridge as vb
 from utils import to_angle
+from environment import Environment
 import pickle
 from itertools import cycle, islice, product
 from imageio import get_writer
@@ -50,7 +50,7 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
-    image = np.matmul(np.concatenate([left_image, right_image], axis=-1), anaglyph_matrix).astype(np.uint8)
+    image = np.matmul(np.concatenate([left_image * 255, right_image * 255], axis=-1), anaglyph_matrix).astype(np.uint8)
     # convert to PIL image
     image = Image.fromarray(image)
     # create a drawer form writing text on the frame
@@ -199,7 +199,9 @@ class Worker:
             self.sess.run(tf.global_variables_initializer())
             print("{} variables initialized".format(self.name))
         # starting VREP
+        print("{} starting V-Rep ...".format(self.name))
         self.environment = Environment(headless=task_index != 0 or not worker0_display)
+        print("{} starting V-Rep ... done.".format(self.name))
 
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts to float32 a central region of the camera images
@@ -213,14 +215,10 @@ class Worker:
             (320 - crop_side_length * ratio) // 2,
             (320 + crop_side_length * ratio) // 2)
         # CROP
-        scale_uint8 = self.cams[:, height_slice, width_slice, :]
+        scale = self.cams[:, height_slice, width_slice, :]
         # DOWNSCALE
-        scale_uint8 = tf.image.resize_bilinear(scale_uint8, [crop_side_length, crop_side_length])
-        # CONVERT TO FLOAT
-        scale = tf.placeholder_with_default(
-            tf.cast(scale_uint8, tf.float32) / 127.5 - 1,
-            shape=scale_uint8.get_shape())
-        self.scales_inp[ratio] = scale
+        scale = tf.image.resize_bilinear(scale, [crop_side_length, crop_side_length])
+        self.scales_inp[ratio] = tf.placeholder_with_default(scale * 2 - 1, shape=scale.get_shape())
 
     def define_autoencoder_scale(self, ratio, filter_size=4, stride=2):
         """Defines an autoencoder that operates at one scale (one downscaling ratio)
@@ -419,8 +417,8 @@ class Worker:
         self.epsilon_update = self.epsilon.assign(self.epsilon * self.epsilon_decay)
 
     def define_networks(self):
-        self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
-        self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.uint8)
+        self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
+        self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
         self.cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
         ### graph definitions:
         self.define_inps()
@@ -454,17 +452,20 @@ class Worker:
             time.sleep(1)
 
     def __call__(self):
-        try:
-            self.pipe.send("{} going idle".format(self.name))
-            cmd = self.pipe.recv()
-            while not cmd == "done":
+        self.pipe.send("{} going idle".format(self.name))
+        cmd = self.pipe.recv()
+        while not cmd == "done":
+            try:
                 print("{} got command {}".format(self.name, cmd))
                 self.__getattribute__(cmd[0])(*cmd[1:])
                 cmd = self.pipe.recv()
-        except Exception as e:
-            print("{} caught exception in worker".format(self.name))
-            self.environment.close()
-            raise e
+            except KeyboardInterrupt as e:
+                print("{} caught a keyboard interrupt".format(self.name))
+            except Exception as e:
+                print("{} caught exception in worker".format(self.name))
+                self.environment.close()
+                raise e
+        self.environment.close()
 
     def save_model(self, path):
         """Save a checkpoint on the hard-drive under path
@@ -497,7 +498,7 @@ class Worker:
         proper_display_of_chunk_of_test_cases is a wrapper around a chunk_of_test_cases (for pretty printing)
         chunk_of_test_cases contains all informations about the tests that must be performed in the simulator
         Each worker gets a few test cases to process, enabling parallel computations
-        The resulting measures are sent back to the Experiment class (the servor)
+        The resulting measures are sent back to the Experiment class (the server)
         """
         chunk_of_test_cases = proper_display_of_chunk_of_test_cases.data
         ret = []
@@ -507,8 +508,8 @@ class Worker:
             "action_index": self.greedy_actions_indices
         }
         for test_case in chunk_of_test_cases:
-            vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
-            self.environment.robot.set_position([0, 0, vergence_init])
+            vergence_init = to_angle(test_case["object_distance"]) - test_case["vergence_error"]
+            self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
             self.environment.screen.set_texture(test_case["stimulus"])
             self.environment.screen.set_trajectory(
                 test_case["object_distance"],
@@ -518,9 +519,9 @@ class Worker:
             for i in range(test_case["n_iterations"]):
                 left_image, right_image = self.environment.robot.get_vision()
                 data = self.sess.run(fetches, feed_dict={self.left_cam: [left_image], self.right_cam: [right_image]})
-                action = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
-                test_data[i]["action_index"] = action
-                test_data[i]["action_value"] = (self.action_set_tilt[action[0]], self.action_set_pan[action[1]], self.action_set_vergence[action[2]])
+                action_value = self.actions_indices_to_values(data["action_index"])
+                test_data[i]["action_index"] = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
+                test_data[i]["action_value"] = action_value
                 test_data[i]["critic_value_tilt"] = data["critic_value"]["tilt"]
                 test_data[i]["critic_value_pan"] = data["critic_value"]["pan"]
                 test_data[i]["critic_value_vergence"] = data["critic_value"]["vergence"]
@@ -529,7 +530,7 @@ class Worker:
                 test_data[i]["eye_speed"] = self.environment.robot.speed
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
                 test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
-                self.environment.robot.set_action(action)
+                self.environment.robot.set_action(action_value, joint_limit_type="none")
                 self.environment.step()
             ret.append((test_case, test_data))
         self.pipe.send(ret)
@@ -552,8 +553,8 @@ class Worker:
             object_distance = self.environment.screen.distance
             vergence_error = self.environment.robot.get_vergence_error(object_distance)
             mean += np.abs(vergence_error)
-            print("vergence error: {:.4f}\treward: {:.4f}".format(vergence_error, reward), end="\n")
-            self.environment.robot.set_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+            print("vergence error: {:.4f}\treward: {:.4f}     {}".format(vergence_error, reward, self.actions_indices_to_values(ret)[-1]), end="\n")
+            self.environment.robot.set_action(self.actions_indices_to_values(ret))
             self.environment.step()
         print("mean abs vergence error: {:.4f}".format(mean / self.episode_length))
 
@@ -581,32 +582,31 @@ class Worker:
             "critic_values": self.critic_values
         }
         self.environment.episode_reset()
-        episode_number = self.sess.run(self.episode_count_inc)
+        episode_number, epsilon = self.sess.run([self.episode_count_inc, self.epsilon])
+        print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
         scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
         total_reward__partial = np.zeros(shape=(), dtype=np.float32)
         for iteration in range(self.episode_length):
             left_image, right_image = self.environment.robot.get_vision()
             feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-            if iteration < self.episode_length:
-                ret = self.sess.run(fetches_store, feed_dict)
-                ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
-                scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
-                scale_reward = scale_reward__partial - scale_reward__partial_new
-                scale_reward__partial = scale_reward__partial_new
-                total_reward__partial_new = ret["total_reward__partial"][0]
-                total_reward = total_reward__partial - total_reward__partial_new
-                total_reward__partial = total_reward__partial_new
-                ###
-                object_distance = self.environment.screen.distance
-                eyes_position = self.environment.robot.position
-                eyes_speed = self.environment.robot.speed
+            ret = self.sess.run(fetches_store, feed_dict)
+            ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
+            scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
+            scale_reward = scale_reward__partial - scale_reward__partial_new
+            scale_reward__partial = scale_reward__partial_new
+            total_reward__partial_new = ret["total_reward__partial"][0]
+            total_reward = total_reward__partial - total_reward__partial_new
+            total_reward__partial = total_reward__partial_new
+            ###
+            object_distance = self.environment.screen.distance
+            eyes_position = self.environment.robot.position
+            eyes_speed = self.environment.robot.speed
+            if episode_number % 10 == 0:  # spare some disk space (90%)
                 self.store_data(ret, object_distance, eyes_position, eyes_speed, iteration, episode_number, scale_reward, total_reward)
-            else:
-                ret = self.sess.run(fetches, feed_dict)
             states.append({r: ret["scales_inp"][r][0] for r in self.ratios})
             actions.append(ret["sampled_actions_indices"])
             # actions.append(ret["greedy_actions_indices"])
-            self.environment.robot.set_action([ret["sampled_actions_indices"][jn] for jn in ["tilt", "pan", "vergence"]])
+            self.environment.robot.set_action(self.actions_indices_to_values(ret["sampled_actions_indices"]))
             self.environment.step()
         self.buffer.incorporate((states, actions))
         return episode_number
@@ -663,12 +663,17 @@ class Worker:
         # pan
         self.action_set_pan = np.zeros(self.n_actions_per_joint)
         # vergence
-        one_pixel_in_angle = 90 / 320
-        mini = one_pixel_in_angle
-        maxi = one_pixel_in_angle * 2 ** (n - 1)
+        half_pixel_in_angle = 90 / 320 / 2
+        mini = half_pixel_in_angle
+        maxi = half_pixel_in_angle * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
         negative = -positive[::-1]
         self.action_set_vergence = np.concatenate([negative, [0], positive])
+
+    def actions_indices_to_values(self, indices_dict):
+        return [self.action_set_tilt[indices_dict["tilt"]],
+                self.action_set_pan[indices_dict["pan"]],
+                self.action_set_vergence[indices_dict["vergence"]]]
 
     def train_one_episode(self, states, actions):
         """Updates the networks weights according to the transitions states and actions
@@ -676,21 +681,14 @@ class Worker:
         fetches = {
             "ops": [self.train_op, self.epsilon_update, self.update_count_inc],
             "summary": self.summary,
-            "episode_count": self.episode_count,
-            "autoencoder_loss": self.autoencoder_loss,
-            "epsilon": self.epsilon
+            "episode_count": self.episode_count
         }
         feed_dict = {self.scales_inp[r]: [s[r] for s in states] for r in self.ratios}
         for jn in ["tilt", "pan", "vergence"]:
             feed_dict[self.picked_actions[jn]] = [a[jn][0] for a in actions]
         ret = self.sess.run(fetches, feed_dict=feed_dict)
-        if self._update_number % 20 == 0:
+        if self._update_number % 200 == 0:
             self.summary_writer.add_summary(ret["summary"], global_step=ret["episode_count"])
-        print("{} simulated episode {}\tautoencoder loss:  {:6.3f}\t\tepsilon {:.2f}".format(
-            self.name,
-            ret["episode_count"],
-            ret["autoencoder_loss"],
-            ret["epsilon"]))
         self._update_number += 1
         return ret["episode_count"]
 
@@ -740,7 +738,7 @@ class Worker:
                             writer.append_data(frame)
                     feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                     ret = self.sess.run(fetches, feed_dict)
-                    self.environment.robot.set_action([ret[jn] for jn in ["tilt", "pan", "vergence"]])
+                    self.environment.robot.set_action(self.actions_indices_to_values(ret))
                     self.environment.step()
                     print("vergence error: {:.4f}".format(vergence_error))
         self.pipe.send("{} going IDLE".format(self.name))
@@ -766,8 +764,6 @@ class Experiment:
     It also constructs the filesystem tree for storing all results / data
     """
     def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, worker0_display=False):
-        lock = filelock.FileLock(os.path.abspath("../experiments/lock"))
-        lock.acquire()
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
         self.experiment_dir = experiment_dir
@@ -800,10 +796,9 @@ class Experiment:
         all_processes = self.parameter_servers_processes + self.workers_processes
         for p in all_processes:
             p.start()
+        print("EXPERIMENT: all processes started. Waiting for answer...")
         for p in self.here_pipes:
             print(p.recv())
-        time.sleep(5)
-        lock.release()
 
     def mktree(self):
         self.logdir = self.experiment_dir + "/log"
@@ -948,14 +943,19 @@ class Experiment:
             p.send("done")
 
     def close(self):
+        print("EXPERIMENT: closing ...")
         self.close_tensorboard()
         self.close_workers()
         self.close_parameter_servers()
+        print("EXPERIMENT: closing ... done.")
 
     def __enter__(self):
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Exiting Experiment context: ", exc_type, exc_value)
+        if exc_type is KeyboardInterrupt:
+            print("EXPERIMENT: caught a KeyboardInterrupt. Emptying current command queues and exiting...")
         self.close()
 
 
@@ -1111,3 +1111,4 @@ if __name__ == "__main__":
             exp.flush_data()
         exp.save_model()
         exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+        exp.make_video("final", 100)

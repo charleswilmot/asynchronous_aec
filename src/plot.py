@@ -467,8 +467,8 @@ if __name__ == "__main__":
         ratios = list(range(1, 9))
         n_actions_per_joint = 9
         n = n_actions_per_joint // 2
-        mini = 90 / 320
-        maxi = 90 / 320 * 2 ** (n - 1)
+        mini = 90 / 320 / 2
+        maxi = 90 / 320 / 2 * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
         negative = -positive[::-1]
         action_set = np.concatenate([negative, [0], positive])

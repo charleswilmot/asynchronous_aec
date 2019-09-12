@@ -45,9 +45,12 @@ class RandomScreen(SquaredPlane):
         self.set_episode_iteration(0)
 
     def set_trajectory(self, distance, tilt_speed, pan_speed):
-        self.distance = 0
+        self.distance = distance
         self.speed = np.sqrt(tilt_speed ** 2 + pan_speed ** 2)
-        self.direction = np.arccos(pan_speed / self.speed)
+        if self.speed > 0:
+            self.direction = np.arccos(pan_speed / self.speed)
+        else:
+            self.direction = 0.0
         if tilt_speed < 0:
             self.direction = -self.direction
         self.set_episode_iteration(0)
@@ -109,7 +112,7 @@ class Environment:
 
 
 class StereoVisionRobot:
-    def __init__(self, min_distance, max_distance, joint_limit_type="stick"):
+    def __init__(self, min_distance, max_distance, default_joint_limit_type="stick"):
         self.cam_left = VisionSensor("vs_cam_left#")
         self.cam_right = VisionSensor("vs_cam_right#")
         self.tilt_left = Joint("vs_eye_tilt_left#")
@@ -118,9 +121,9 @@ class StereoVisionRobot:
         self.pan_right = Joint("vs_eye_pan_right#")
         self.min_distance = min_distance
         self.max_distance = max_distance
-        self.joint_limit_type = joint_limit_type
-        self._pan_max = rad(20)
-        self._tilt_max = rad(20)
+        self.default_joint_limit_type = default_joint_limit_type
+        self._pan_max = rad(4)
+        self._tilt_max = rad(10)
         self._tilt_speed = 0
         self._pan_speed = 0
         self.episode_reset()
@@ -133,65 +136,74 @@ class StereoVisionRobot:
         self.tilt_right.set_joint_position(0)
         self.tilt_left.set_joint_position(0)
         fixation_distance = np.random.uniform(self.min_distance, self.max_distance)
-        random_vergence = to_angle(fixation_distance)
+        random_vergence = rad(to_angle(fixation_distance))
         self.pan_left.set_joint_position(random_vergence / 2)
         self.pan_right.set_joint_position(-random_vergence / 2)
 
-    def _check_pan_limit(self, left, right):
-        if self.joint_limit_type == "stick":
+    def _check_pan_limit(self, left, right, joint_limit_type=None):
+        joint_limit_type = self.default_joint_limit_type if joint_limit_type is None else joint_limit_type
+        if joint_limit_type == "stick":
             return np.clip(left, 0, self._pan_max), np.clip(right, -self._pan_max, 0)
+        if joint_limit_type == "none":
+            return left, right
 
-    def _check_tilt_limit(self, left, right):
-        if self.joint_limit_type == "stick":
+    def _check_tilt_limit(self, left, right, joint_limit_type=None):
+        joint_limit_type = self.default_joint_limit_type if joint_limit_type is None else joint_limit_type
+        if joint_limit_type == "stick":
             return np.clip(left, -self._tilt_max, self._tilt_max), np.clip(right, -self._tilt_max, self._tilt_max)
+        if joint_limit_type == "none":
+            return left, right
 
-    def reset_vergence_position(self):
+    def reset_vergence_position(self, joint_limit_type=None):
         mean = (self.pan_right.get_joint_position() + self.pan_left.get_joint_position()) / 2
-        left, right = self._check_pan_limit(mean, mean)
+        left, right = self._check_pan_limit(mean, mean, joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
-    def set_vergence_position(self, alpha):
+    def set_vergence_position(self, alpha, joint_limit_type=None):
         rad_alpha = rad(alpha)
         mean = (self.pan_right.get_joint_position() + self.pan_left.get_joint_position()) / 2
-        left, right = self._check_pan_limit(mean + rad_alpha / 2, mean - rad_alpha / 2)
+        left, right = self._check_pan_limit(mean + rad_alpha / 2, mean - rad_alpha / 2, joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
-    def set_delta_vergence_position(self, delta):
+    def set_delta_vergence_position(self, delta, joint_limit_type=None):
         rad_delta = rad(delta)
         left, right = self._check_pan_limit(
             self.pan_left.get_joint_position() + rad_delta / 2,
-            self.pan_right.get_joint_position() - rad_delta / 2)
+            self.pan_right.get_joint_position() - rad_delta / 2,
+            joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
-    def set_pan_position(self, alpha):
+    def set_pan_position(self, alpha, joint_limit_type=None):
         rad_alpha = rad(alpha)
         vergence = self.pan_left.get_joint_position() - self.pan_right.get_joint_position()
-        left, right = self._check_pan_limit(vergence + rad_alpha, vergence + rad_alpha)
+        left, right = self._check_pan_limit(vergence + rad_alpha, vergence + rad_alpha, joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
-    def set_delta_pan_speed(self, delta):
+    def set_delta_pan_speed(self, delta, joint_limit_type=None):
         self._pan_speed += rad(delta)
         left, right = self._check_pan_limit(
             self.pan_left.get_joint_position() + self._pan_speed,
-            self.pan_right.get_joint_position() + self._pan_speed)
+            self.pan_right.get_joint_position() + self._pan_speed,
+            joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
-    def set_tilt_position(self, alpha):
+    def set_tilt_position(self, alpha, joint_limit_type=None):
         rad_alpha = rad(alpha)
-        left, right = self._check_tilt_limit(rad_alpha, rad_alpha)
+        left, right = self._check_tilt_limit(rad_alpha, rad_alpha, joint_limit_type)
         self.tilt_left.set_joint_position(left)
         self.tilt_right.set_joint_position(right)
 
-    def set_delta_tilt_speed(self, delta):
+    def set_delta_tilt_speed(self, delta, joint_limit_type=None):
         self._tilt_speed += rad(delta)
         left, right = self._check_tilt_limit(
             self.tilt_left.get_joint_position() + self._tilt_speed,
-            self.tilt_right.get_joint_position() + self._tilt_speed)
+            self.tilt_right.get_joint_position() + self._tilt_speed,
+            joint_limit_type)
         self.tilt_left.set_joint_position(left)
         self.tilt_right.set_joint_position(right)
 
@@ -219,15 +231,15 @@ class StereoVisionRobot:
     def get_speed(self):
         return self.tilt_speed, self.pan_speed
 
-    def set_action(self, action):
-        self.set_delta_tilt_speed(action[0])
-        self.set_delta_pan_speed(action[1])
-        self.set_delta_vergence_position(action[2])
+    def set_action(self, action, joint_limit_type=None):
+        self.set_delta_tilt_speed(action[0], joint_limit_type)
+        self.set_delta_pan_speed(action[1], joint_limit_type)
+        self.set_delta_vergence_position(action[2], joint_limit_type)
 
-    def set_position(self, position):
-        self.set_tilt_position(position[0])
-        self.set_pan_position(position[1])
-        self.set_vergence_position(position[2])
+    def set_position(self, position, joint_limit_type):
+        self.set_tilt_position(position[0], joint_limit_type)
+        self.set_pan_position(position[1], joint_limit_type)
+        self.set_vergence_position(position[2], joint_limit_type)
 
     def get_vision(self):
         return self.cam_left.capture_rgb(), self.cam_right.capture_rgb()

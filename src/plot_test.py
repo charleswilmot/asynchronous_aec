@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 import argparse
 from itertools import product
+from utils import to_angle
 
 
 OBJECT_DISTANCE = 1
@@ -46,22 +47,21 @@ def plot_vergence_trajectory_all(fig, lists_of_param_anchors, data):
     n_subplots = len(lists_of_param_anchors["object_distances"])
     # for each sublist, plot in an ax
     for subplot_index, subdata in enumerate(list_of_subdata):
-        ax = get_new_ax(fig, n_subplots, subplot_index, methode="horizontal")
+        ax = get_new_ax(fig, n_subplots, subplot_index, methode="square")
         plot_vergence_trajectory_sub(ax, subdata)
 
 
 def plot_vergence_trajectory_sub(ax, data):
     test_cases = np.array([a for a, b in data])
     for vergence_error in np.unique(test_cases["vergence_error"]):
-        filtered = filter_data(data, vergence_errors=[vergence_error])
-        # plot for each stimulus in light grey
-        test_data = np.array([b for a, b in filtered])
-        ax.plot(test_data["vergence_error"].T, color="grey", alpha=0.2)
-        # plot mean and std
-        ax.plot(np.mean(test_data["vergence_error"].T, axis=1), linewidth=1.5)
-        # plot a little horizontal line to indicate where the vergence error starts
         ax.axhline(y=vergence_error, xmin=0, xmax=0.1, color="r")
+        # filtered = filter_data(data, vergence_errors=[vergence_error])
+        # # plot for each stimulus in light grey
+        # test_data = np.array([b for a, b in filtered])
+        # ax.plot(range(1, test_data.shape[0] + 1), test_data["vergence_error"].T, color="grey", alpha=0.8)
     # plot the abscissa, add title, axis label etc...
+    test_data = np.array([b for a, b in data])
+    ax.boxplot(test_data["vergence_error"], notch=True, showfliers=False) #, whis=[10, 90])
     ax.axhline(0, color="k")
     ax.axhline(90 / 320, color="k", linestyle="--")
     ax.axhline(-90 / 320, color="k", linestyle="--")

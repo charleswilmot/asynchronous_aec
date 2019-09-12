@@ -50,7 +50,7 @@ class ClusterQueue:
         return " {} {}".format(flag, v)
 
 
-cq = ClusterQueue(n_episodes=200000, flush_every=5000, n_workers=25, description="sanity_check", critic_learning_rate=1e-4, model_learning_rate=1e-4,
+cq = ClusterQueue(n_episodes=200000, flush_every=5000, n_workers=40, description="after_new_interface__cluster_debug", critic_learning_rate=1e-4, model_learning_rate=1e-4,
              discount_factor=0.0, update_factor=10, episode_length=10, epsilon=0.2)
 
 

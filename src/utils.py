@@ -1,5 +1,3 @@
-import os
-import getpass
 import numpy as np
 
 

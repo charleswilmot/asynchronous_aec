@@ -36,4 +36,4 @@ if __name__ == "__main__":
     with TemporaryDirectory() as d:
         with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, worker0_display=False) as exp:
             exp.restore_model(experiment_dir)
-            exp.make_video(args.name, 10, outpath=args.path + "/../../video/")
+            exp.make_video(args.name, 50, outpath=args.path + "/../../video/")

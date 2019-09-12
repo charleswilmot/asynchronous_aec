@@ -27,7 +27,7 @@ if __name__ == "__main__":
     experiment_dir = args.path
 
     n_parameter_servers = 1
-    n_workers = 6
+    n_workers = 4
 
     with open(experiment_dir + "/../../conf/worker_conf.pkl", "rb") as f:
         worker_conf = pickle.load(f)
