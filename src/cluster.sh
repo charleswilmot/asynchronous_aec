@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+4 #!/usr/bin/env sh
 #SBATCH --partition sleuths
 #SBATCH --gres gpu:3
 #SBATCH -LXserver
