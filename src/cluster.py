@@ -29,6 +29,7 @@ class ClusterQueue:
             mlr=algo_params["model_learning_rate"] if "model_learning_rate" in algo_params else None,
             clr=algo_params["critic_learning_rate"] if "critic_learning_rate" in algo_params else None,
             description=algo_params["description"])
+        print(experiment_path)
         os.mkdir(experiment_path)
         os.mkdir(experiment_path + "/log")
         # Build console command for cluster execution
@@ -46,7 +47,7 @@ class ClusterQueue:
         if "description" in cluster_params:
             self.cmd += " --job-name {}".format(cluster_params["description"])
         print("\n")
-        self.cmd += " srun python3 asynchronous.py"
+        self.cmd += " cluster.sh"
         for k, v in algo_params.items():
             flag = self._key_to_flag(k)
             arg = self._to_arg(flag, v)
@@ -59,7 +60,7 @@ class ClusterQueue:
     def _key_to_flag(self, key):
         return "--" + str(key).replace("_", "-")
 
-    # TODO: Make this better/single methode
+    # TODO: Merge _to_arg and _to_arg_cluster
     def _to_arg(self, flag, v):
         return " {} {}".format(flag, str(v))
 
@@ -72,14 +73,14 @@ class ClusterQueue:
         time.sleep(10)
 
 # General parameters
-description = "Basic description"
+description = "Basicdescription"
 
 # Define cluster specs here
 cluster_params = {
     "partition":"sleuths",
     "gres":'gpu:3',
     "mincpus":40,
-    "mem":9000,
+    "mem":90000,
     "description":description
 }
 # Define algorithm specs here
@@ -92,7 +93,7 @@ algo_params = {
     "model_learning_rate":1e-4,
     "discount_factor":0.0,
     "update_factor":10,
-    "episode_length":0.0,
+    "episode_length":10,
     "epsilon":0.2,
 }
 
