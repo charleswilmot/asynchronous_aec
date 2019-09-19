@@ -28,7 +28,7 @@ class ClusterQueue:
         experiment_path = make_experiment_path(
             mlr=algo_params["model_learning_rate"] if "model_learning_rate" in algo_params else None,
             clr=algo_params["critic_learning_rate"] if "critic_learning_rate" in algo_params else None,
-            description=algo_params["description"])
+            description=algo_params["description"].replace(" ", "_"))
         print(experiment_path)
         os.mkdir(experiment_path)
         os.mkdir(experiment_path + "/log")
@@ -45,7 +45,7 @@ class ClusterQueue:
         # TODO: Move this outside of the class
         self.cmd += " -LXserver"
         if "description" in cluster_params:
-            self.cmd += " --job-name {}".format(cluster_params["description"])
+            self.cmd += " --job-name {}".format(cluster_params["description"].replace(" ", "_"))
         print("\n")
         self.cmd += " cluster.sh"
         for k, v in algo_params.items():
@@ -60,12 +60,8 @@ class ClusterQueue:
     def _key_to_flag(self, key):
         return "--" + str(key).replace("_", "-")
 
-    # TODO: Merge _to_arg and _to_arg_cluster
     def _to_arg(self, flag, v):
-        return " {} {}".format(flag, str(v))
-
-    def _to_arg_cluster(self, flag, v):
-        return " {}={}".format(flag, v)
+        return " {} {}".format(flag, str(v).replace(" ", "_"))
 
     def run(self):
         print("\n", "[+] Launching: ", self.cmd, "\n")
@@ -73,7 +69,7 @@ class ClusterQueue:
         time.sleep(10)
 
 # General parameters
-description = "Basicdescription"
+description = "Basic Description With Spaces"
 
 # Define cluster specs here
 cluster_params = {
