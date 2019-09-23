@@ -2,6 +2,9 @@ import numpy as np
 import time
 from asynchronous import make_experiment_path
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 possible_values = \
     ["n_parameter_servers",
@@ -20,7 +23,7 @@ possible_values = \
      "entropy_reg_decay"]
 
 class ClusterQueue:
-
+    """Initiate folders, path, parameters for execution on cluster"""
     def __init__(self, algo_params, cluster_params):
         self.algo_params = algo_params
         self.cluster_params = cluster_params
@@ -40,9 +43,9 @@ class ClusterQueue:
                 continue
             flag = self._key_to_flag(k)
             arg = self._to_arg(flag, v)
-            print("[DEBUG] Adding command: {}".format(arg))
+            logging.debug("Adding command: {}".format(arg))
             self.cmd += arg
-        # TODO: Move this outside of the class
+        # FIXIT: Move this outside of the class
         self.cmd += " -LXserver"
         if "description" in cluster_params:
             self.cmd += " --job-name {}".format(cluster_params["description"].replace(" ", "_"))
@@ -51,11 +54,11 @@ class ClusterQueue:
         for k, v in algo_params.items():
             flag = self._key_to_flag(k)
             arg = self._to_arg(flag, v)
-            print("[DEBUG] Adding command: {}".format(arg))
+            logging.debug("Adding command: {}".format(arg))
             self.cmd += arg
         self.cmd += self._to_arg("--experiment-path", experiment_path)
         # Print command line command
-        print("\n", "[DEBUG] ", self.cmd, "\n")
+        logging.debug(self.cmd)
 
     def _key_to_flag(self, key):
         return "--" + str(key).replace("_", "-")
@@ -94,4 +97,4 @@ algo_params = {
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
-cq.run()
+#cq.run()

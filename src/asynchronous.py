@@ -20,6 +20,7 @@ import pickle
 from itertools import cycle, islice, product
 from imageio import get_writer
 from PIL import ImageDraw, Image #, ImageFont
+import logging
 
 
 dttest_data = np.dtype([
@@ -745,16 +746,22 @@ class Worker:
 
 
 def get_n_ports(n, start_port=19000):
+    """Returns a list of n usable ports, one for each worker"""
+
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
+
     port = start_port
     ports = []
+
     for i in range(n):
         while is_port_in_use(port):
             port += 1
         ports.append(port)
         port += 1
+
+    logging.info(ports)
     return ports
 
 
@@ -976,7 +983,6 @@ def make_experiment_path(date=None, mlr=None, clr=None, description=None):
 if __name__ == "__main__":
     import argparse
 
-
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -984,7 +990,7 @@ if __name__ == "__main__":
         type=str,
         action='store',
         default="",
-        help="Path to the experiment directory."
+        help="Path to the experiment directory. Results are stored here."
     )
 
     parser.add_argument(
