@@ -86,6 +86,7 @@ def _chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
+
 def chunks(l, n):
     return list(_chunks(l, n))
 
@@ -98,15 +99,13 @@ def get_textures(path):
 
 
 def lrelu(x):
-    """Tensorflow activation function (slope 0.2 for x < 0, slope 1 for x > 0)
-    """
+    """Tensorflow activation function (slope 0.2 for x < 0, slope 1 for x > 0)"""
     alpha = 0.2
     return tf.nn.relu(x) * (1 - alpha) + x * alpha
 
 
 def get_cluster(n_parameter_servers, n_workers):
-    """Returns a cluster object that enables tensorflow to perform asynchronous updates of the variables
-    """
+    """Returns a cluster object that enables tensorflow to perform asynchronous updates of the variables"""
     spec = {}
     port = get_available_port(2222)
     for i in range(n_parameter_servers):
@@ -123,15 +122,13 @@ def get_cluster(n_parameter_servers, n_workers):
 
 
 def is_port_in_use(port):
-    """Returns true is the port is available, else false
-    """
+    """Returns true is the port is available, else false"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
 
 def get_available_port(start_port=6006):
-    """Returns the first available port, starting from start_port
-    """
+    """Returns the first available port, starting from start_port"""
     port = start_port
     while is_port_in_use(port):
         port += 1
@@ -205,16 +202,15 @@ class Worker:
         print("{} starting V-Rep ... done.".format(self.name))
 
     def define_scale_inp(self, ratio):
-        """Crops, downscales and converts to float32 a central region of the camera images
-        32*ratio x 32*ratio --> 32 x 32
-        """
+        """Crops, downscales and converts a central region of the camera images
+        Input: Image patch with size 32*ratio x 32*ratio --> Output: Image patch with 32 x 32"""
         crop_side_length = 16
         height_slice = slice(
-            (240 - crop_side_length * ratio) // 2,
-            (240 + crop_side_length * ratio) // 2)
+            (240 - (crop_side_length * ratio)) // 2,
+            (240 + (crop_side_length * ratio)) // 2)
         width_slice = slice(
-            (320 - crop_side_length * ratio) // 2,
-            (320 + crop_side_length * ratio) // 2)
+            (320 - (crop_side_length * ratio)) // 2,
+            (320 + (crop_side_length * ratio)) // 2)
         # CROP
         scale = self.cams[:, height_slice, width_slice, :]
         # DOWNSCALE
@@ -222,8 +218,7 @@ class Worker:
         self.scales_inp[ratio] = tf.placeholder_with_default(scale * 2 - 1, shape=scale.get_shape())
 
     def define_autoencoder_scale(self, ratio, filter_size=4, stride=2):
-        """Defines an autoencoder that operates at one scale (one downscaling ratio)
-        """
+        """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp[ratio]
         batch_size = tf.shape(inp)[0]
         conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
@@ -249,6 +244,7 @@ class Worker:
         self.scale_rewards[ratio] = (self.scale_recerrs[ratio][:-1] - self.scale_recerrs[ratio][1:]) / 0.01
         self.scale_rewards__partial[ratio] = self.scale_recerrs[ratio] / 0.01
         self.scale_recerr[ratio] = tf.reduce_mean(self.scale_recerrs[ratio])
+
         ### Images for tensorboard:
         n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
         left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 6))
@@ -319,8 +315,7 @@ class Worker:
         self.scale_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
 
     def define_critic_joint(self, joint_name):
-        """Defines the critic merging every scales, for one joint
-        """
+        """Defines the critic merging every scales, for one joint"""
         self.picked_actions[joint_name] = tf.placeholder(shape=(None,), dtype=tf.int32)
         self.action_mask[joint_name] = tf.one_hot(
             self.picked_actions[joint_name][:-1],
@@ -361,8 +356,7 @@ class Worker:
         self.sampled_actions_indices[joint_name] = tf.where(condition, x=self.greedy_actions_indices[joint_name], y=random)
 
     def define_critic(self):
-        """Defines the critics for each joints
-        """
+        """Defines the critics for each joints"""
         # done once for every joint
         self.picked_actions = {}
         self.action_mask = {}
@@ -391,6 +385,7 @@ class Worker:
             self.critic_loss_all_levels_all_joints += self.critic_loss_all_levels[joint_name]
 
     def define_inps(self):
+        """Generates the different 32x32 image patches for the given ratios."""
         self.scales_inp = {}
         for ratio in self.ratios:
             self.define_scale_inp(ratio)
@@ -561,7 +556,7 @@ class Worker:
 
     def get_episode(self):
         """Get the training data that the RL algorithm needs,
-        and stores trining infos in a buffer that must be flushed regularly
+        and stores training infos in a buffer that must be flushed regularly
         See the help guide about data formats
         """
         states = []
@@ -656,8 +651,7 @@ class Worker:
 
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
-        At the moment, pan and tilt are comprised only of zeros
-        """
+        At the moment, pan and tilt are comprised only of zeros"""
         n = self.n_actions_per_joint // 2
         # tilt
         self.action_set_tilt = np.zeros(self.n_actions_per_joint)
@@ -677,8 +671,7 @@ class Worker:
                 self.action_set_vergence[indices_dict["vergence"]]]
 
     def train_one_episode(self, states, actions):
-        """Updates the networks weights according to the transitions states and actions
-        """
+        """Updates the networks weights according to the transitions states and actions"""
         fetches = {
             "ops": [self.train_op, self.epsilon_update, self.update_count_inc],
             "summary": self.summary,
@@ -695,8 +688,7 @@ class Worker:
 
     def train(self, n_episodes):
         """Train until n_episodes have been simulated
-        See the update_factor parameter
-        """
+        See the update_factor parameter"""
         before_n_episodes = self.sess.run(self.episode_count)
         current_n_episode = before_n_episodes
         after_n_episode = before_n_episodes + n_episodes
@@ -747,20 +739,16 @@ class Worker:
 
 def get_n_ports(n, start_port=19000):
     """Returns a list of n usable ports, one for each worker"""
-
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
-
     port = start_port
     ports = []
-
     for i in range(n):
         while is_port_in_use(port):
             port += 1
         ports.append(port)
         port += 1
-
     logging.info(ports)
     return ports
 
@@ -768,8 +756,8 @@ def get_n_ports(n, start_port=19000):
 class Experiment:
     """An experiment object allows to control clients / workers that train a model
     It starts one process per worker, and one process per parameter server
-    It also constructs the filesystem tree for storing all results / data
-    """
+    It also constructs the filesystem tree for storing all results / data"""
+
     def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, worker0_display=False):
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
@@ -844,7 +832,12 @@ class Experiment:
         # model_buffer_size,
         # update_factor,
         # worker0_display=False
-        worker = Worker(self.cluster, task_index, self.there_pipes[task_index], self.logdir, self.ports[task_index],
+        worker = Worker(
+            self.cluster,
+            task_index,
+            self.there_pipes[task_index],
+            self.logdir,
+            self.ports[task_index],
             self.worker_conf.mlr,
             self.worker_conf.clr,
             self.worker_conf.discount_factor,
@@ -853,7 +846,8 @@ class Experiment:
             self.worker_conf.episode_length,
             self.worker_conf.buffer_size,
             self.worker_conf.update_factor,
-            self.worker0_display)
+            self.worker0_display
+            )
         worker.wait_for_variables_initialization()
         worker()
 
@@ -881,6 +875,7 @@ class Experiment:
                 time.sleep(0.1)
 
     def train(self, n_updates):
+        """Sending string "train" to remote workers via pipes to start training""""
         for p in self.here_pipes:
             p.send(("train", n_updates))
         for p in self.here_pipes:
@@ -964,7 +959,6 @@ class Experiment:
         if exc_type is KeyboardInterrupt:
             print("EXPERIMENT: caught a KeyboardInterrupt. Emptying current command queues and exiting...")
         self.close()
-
 
 default_mlr = 1e-4
 default_clr = 1e-4
