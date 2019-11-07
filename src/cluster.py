@@ -78,15 +78,15 @@ description = "Basic Description With Spaces"
 cluster_params = {
     "partition":"sleuths",
     "gres":'gpu:3',
-    "mincpus":40,
-    "mem":90000,
+    "mincpus":32, #40
+    "mem":60000, #90_000
     "description":description
 }
 # Define algorithm specs here
 algo_params = {
-    "n_episodes":20000,
+    "n_episodes":200000, #200_000
     "flush_every":5000,
-    "n_workers":40,
+    "n_workers":32, #40
     "description":description,
     "critic_learning_rate":1e-4,
     "model_learning_rate":1e-4,
@@ -97,4 +97,4 @@ algo_params = {
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
-#cq.run()
+cq.run()

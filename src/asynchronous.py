@@ -203,7 +203,7 @@ class Worker:
 
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts a central region of the camera images
-        Input: Image patch with size 32*ratio x 32*ratio --> Output: Image patch with 32 x 32"""
+        Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
         crop_side_length = 16
         height_slice = slice(
             (240 - (crop_side_length * ratio)) // 2,
@@ -875,7 +875,7 @@ class Experiment:
                 time.sleep(0.1)
 
     def train(self, n_updates):
-        """Sending string "train" to remote workers via pipes to start training""""
+        """Sending string "train" to remote workers via pipes to start training"""
         for p in self.here_pipes:
             p.send(("train", n_updates))
         for p in self.here_pipes:
