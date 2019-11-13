@@ -92,7 +92,8 @@ def chunks(l, n):
 
 
 def get_textures(path):
-    """Reads and return all the textures (ie images) found under path."""
+    """Reads and return all the textures (ie images) found under path.
+    """
     filepaths = [path + "/{}".format(x) for x in os.listdir(path) if x.endswith(".bmp") or x.endswith(".png")]
     return np.array([np.array(Image.open(x)) for x in filepaths])
 
@@ -155,7 +156,11 @@ class Worker:
     It first defines a model according to the model's parameters, then goes to the idle mode, and waits for instructions
     todo: see the Conf object: pass a Conf instance to the Worker constructor.
     """
-    def __init__(self, cluster, task_index, pipe, logdir, simulator_port, model_lr, critic_lr, discount_factor, epsilon_init, epsilon_decay, episode_length, model_buffer_size, update_factor, worker0_display=False):
+    def __init__(self, cluster, task_index, pipe, logdir, simulator_port,
+                 model_lr, critic_lr, discount_factor,
+                 epsilon_init, epsilon_decay,
+                 episode_length, model_buffer_size, update_factor,
+                 worker0_display=False):
         self.task_index = task_index
         self.cluster = cluster
         self._n_workers = self.cluster.num_tasks("worker") - 1
@@ -165,7 +170,6 @@ class Worker:
         self.episode_count = tf.Variable(0)
         self.episode_count_inc = self.episode_count.assign_add(1)
         self.discount_factor = discount_factor
-        #
         self.epsilon_init = epsilon_init
         self.epsilon_decay = epsilon_decay
         self.episode_length = episode_length
@@ -201,18 +205,14 @@ class Worker:
         """Crops, downscales and converts a central region of the camera images
         Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
         crop_side_length = 16
-        image_height = 240
-        image_width = 320
-        # Define the slices
         height_slice = slice(
-            (image_height - (crop_side_length * ratio)) // 2,
-            (image_height + (crop_side_length * ratio)) // 2)
+            (240 - (crop_side_length * ratio)) // 2,
+            (240 + (crop_side_length * ratio)) // 2)
         width_slice = slice(
-            (image_width - (crop_side_length * ratio)) // 2,
-            (image_width + (crop_side_length * ratio)) // 2)
+            (320 - (crop_side_length * ratio)) // 2,
+            (320 + (crop_side_length * ratio)) // 2)
         # CROP
-        # scale = self.cams[:, height_slice, width_slice, :]
-        scale = self.cams_combined[:, height_slice, width_slice, :]
+        scale = self.cams[:, height_slice, width_slice, :]
         # DOWNSCALE
         scale = tf.image.resize_bilinear(scale, [crop_side_length, crop_side_length])
         self.scales_inp[ratio] = tf.placeholder_with_default(scale * 2 - 1, shape=scale.get_shape())
@@ -221,15 +221,15 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
-        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 * 2, 1, 1, "valid", activation_fn=None)
+        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
         target = tf.extract_image_patches(
             inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
         )
@@ -247,30 +247,23 @@ class Worker:
 
         ### Images for tensorboard:
         n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
-        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 6))
         left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 12))
-        left_right_new = left_right[..., :6]
-        left_right_old = left_right[..., 6:]
-        left = left_right_new[..., :3]
-        right = left_right_new[..., 3:]
-        left_old = left_right_old[..., :3]
-        right_old = left_right_old[..., 3:]
-        image_left = tf.concat([left, right, left_old, right_old], axis=0)
-        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
+        left = left_right[..., :3]
+        right = left_right[..., 3:]
+        image_left = tf.concat([left, right], axis=0)
+        left_right = tf.reshape(target[-1], (n_patches, n_patches, filter_size, filter_size, 6))
         left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 12))
-        left_right_new = left_right[..., :6]
-        left_right_old = left_right[..., 6:]
-        left = left_right_new[..., :3]
-        right = left_right_new[..., 3:]
-        left_old = left_right_old[..., :3]
-        right_old = left_right_old[..., 3:]
-        image_right = tf.concat([left, right, left_old, right_old], axis=0)
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
+        left = left_right[..., :3]
+        right = left_right[..., 3:]
+        image_right = tf.concat([left, right], axis=0)
         self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
 
     def define_critic_patch(self, ratio, joint_name):
-        """Defines the critic at the level of the patches, for one scale, for one joint"""
+        """Defines the critic at the level of the patches, for one scale, for one joint
+        """
         inp = tf.stop_gradient(self.scale_latent_conv[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
         patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
@@ -293,7 +286,8 @@ class Worker:
         self.patch_loss[joint_name][ratio] = (tf.reduce_sum(losses) + tf.reduce_sum(stay_the_same_loss)) / size
 
     def define_critic_scale(self, ratio, joint_name):
-        """Defines the critic at the level of one scale, for one joint"""
+        """Defines the critic at the level of one scale, for one joint
+        """
         size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
         inp = tf.concat([
             tf.stop_gradient(self.scale_latent[ratio]),
@@ -421,11 +415,7 @@ class Worker:
     def define_networks(self):
         self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
         self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
-        self.left_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
-        self.right_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
         self.cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
-        self.cams_before = tf.concat([self.left_cam_before, self.right_cam_before], axis=-1)  # (None, 240, 320, 6)
-        self.cams_combined = tf.concat([self.left_cam, self.left_cam_before, self.right_cam, self.right_cam_before], axis=-1)  # (None, 240, 320, 12)
         ### graph definitions:
         self.define_inps()
         self.define_autoencoder()
@@ -522,11 +512,9 @@ class Worker:
                 test_case["speed_error"][0],
                 test_case["speed_error"][1])
             test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
-            left_image, right_image = self.environment.robot.get_vision()
             for i in range(test_case["n_iterations"]):
-                left_image_before, right_image_before = left_image.copy(), right_image.copy()
                 left_image, right_image = self.environment.robot.get_vision()
-                data = self.sess.run(fetches, feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before: [left_image_before], self.right_cam_before: [right_image_before]})
+                data = self.sess.run(fetches, feed_dict={self.left_cam: [left_image], self.right_cam: [right_image]})
                 action_value = self.actions_indices_to_values(data["action_index"])
                 test_data[i]["action_index"] = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
                 test_data[i]["action_value"] = action_value
@@ -552,11 +540,9 @@ class Worker:
         self.environment.episode_reset()
         mean = 0
         total_reward__partial = 0
-        left_image, right_image = self.environment.robot.get_vision()
         for iteration in range(self.episode_length):
-            left_image_before, right_image_before = left_image.copy(), right_image.copy()
             left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before: [left_image_before], self.right_cam_before: [right_image_before]}
+            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
             reward = total_reward__partial - total_reward__partial_new[0]
             total_reward__partial = total_reward__partial_new[0]
@@ -596,11 +582,9 @@ class Worker:
         print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
         scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
         total_reward__partial = np.zeros(shape=(), dtype=np.float32)
-        left_image, right_image = self.environment.robot.get_vision()
         for iteration in range(self.episode_length):
-            left_image_before, right_image_before = left_image.copy(), right_image.copy()
             left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before: [left_image_before], self.right_cam_before: [right_image_before]}
+            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
             ret = self.sess.run(fetches_store, feed_dict)
             ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
             scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
@@ -667,27 +651,19 @@ class Worker:
 
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
-        sorez fo ylno desirpmoc era tlit dna nap ,tnemom eht tA"""
+        At the moment, pan and tilt are comprised only of zeros"""
         n = self.n_actions_per_joint // 2
-        image_width = 320
-        image_height = 240
-        camera_fov_deg = 90
         # tilt
-        half_pixel_in_angle = camera_fov_deg / image_height / 2 # How much does the angle need to change to percieve a 0.5 or 1 pixel shift of the image
-        mini = half_pixel_in_angle
-        maxi = half_pixel_in_angle * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        self.action_set_tilt = np.concatenate([negative, [0], positive])
+        self.action_set_tilt = np.zeros(self.n_actions_per_joint)
         # pan
-        half_pixel_in_angle = camera_fov_deg / image_width / 2 # How much does the angle need to change to percieve a 0.5 or 1 pixel shift of the image
+        half_pixel_in_angle = 90 / 320 / 2
         mini = half_pixel_in_angle
         maxi = half_pixel_in_angle * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
         negative = -positive[::-1]
         self.action_set_pan = np.concatenate([negative, [0], positive])
         # vergence
-        half_pixel_in_angle = camera_fov_deg / image_width / 2 # How much does the angle need to change to percieve a 0.5 or 1 pixel shift of the image
+        half_pixel_in_angle = 90 / 320 / 2
         mini = half_pixel_in_angle
         maxi = half_pixel_in_angle * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
@@ -758,7 +734,7 @@ class Worker:
                     if iteration == 0:
                         for i in range(24):
                             writer.append_data(frame)
-                    feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before: [left_image], self.right_cam_before: [right_image]}
+                    feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                     ret = self.sess.run(fetches, feed_dict)
                     self.environment.robot.set_action(self.actions_indices_to_values(ret))
                     self.environment.step()
@@ -828,7 +804,6 @@ class Experiment:
         self.logdir = self.experiment_dir + "/log"
         self.checkpointsdir = self.experiment_dir + "/checkpoints"
         self.videodir = self.experiment_dir + "/video"
-        self.imagedir = self.experiment_dir + "/image"
         self.datadir = self.experiment_dir + "/data"
         self.testdatadir = self.experiment_dir + "/test_data"
         self.confdir = self.experiment_dir + "/conf"
@@ -836,7 +811,6 @@ class Experiment:
             os.makedirs(self.experiment_dir, exist_ok=True)
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.videodir)
-            os.makedirs(self.imagedir)
             os.makedirs(self.datadir)
             os.makedirs(self.testdatadir)
             os.makedirs(self.confdir)
@@ -942,21 +916,18 @@ class Experiment:
         with open(path, "wb")as f:
             pickle.dump(test_data_summary, f)
 
-# todo\write here
     def playback(self, n_episodes, greedy=False):
         for p in self.here_pipes:
             p.send(("playback", n_episodes, greedy))
         for p in self.here_pipes:
             p.recv()
 
-            # TODO\write here
     def flush_data(self):
         for p in self.here_pipes:
             p.send(("flush_data", self.datadir))
         for p in self.here_pipes:
             p.recv()
 
-##############################################
     def save_model(self, name=None):
         name = "{:08d}".format(self.get_current_episode_count()) if name is None else name
         path = self.checkpointsdir + "/{}/".format(name)
@@ -1118,13 +1089,6 @@ if __name__ == "__main__":
         help="Decay for epsilon."
     )
 
-    parser.add_argument(
-        '-w0d', '--worker0-display',
-        action=store_true,
-        default=False
-        help="Starts the VREP GUI."
-    )
-
     args = parser.parse_args()
 
     if not args.experiment_path:
@@ -1139,7 +1103,7 @@ if __name__ == "__main__":
 
     test_at = np.array([5000, 10000, 20000, 30000, 50000, 75000, 100000, 150000]) // args.flush_every
 
-    with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf, worker0_display=args.worker0_display) as exp:
+    with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
             exp.restore_model(args.restore_from)
         if args.tensorboard:
