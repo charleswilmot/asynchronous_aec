@@ -72,21 +72,21 @@ class ClusterQueue:
         time.sleep(10)
 
 # General parameters
-description = "Basic Description With Spaces"
+description = "Vergence Only Version"
 
 # Define cluster specs here
 cluster_params = {
     "partition":"sleuths",
-    "gres":'gpu:3',
-    "mincpus":32, #40
-    "mem":60000, #90_000
+    "gres":'gpu:1',
+    "mincpus":16, #40
+    "mem":90000, #90_000
     "description":description
 }
 # Define algorithm specs here
 algo_params = {
-    "n_episodes":200000, #200_000
-    "flush_every":5000,
-    "n_workers":32, #40
+    "n_episodes":50000, #200_000
+    "flush_every":10000,
+    "n_workers":16, #40
     "description":description,
     "critic_learning_rate":1e-4,
     "model_learning_rate":1e-4,
