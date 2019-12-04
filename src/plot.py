@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 from numpy import ma
 from matplotlib import cbook
 from matplotlib.cm import seismic
@@ -14,7 +16,6 @@ import re
 import argparse
 import warnings
 from asynchronous import Conf
-
 
 warnings.filterwarnings("ignore")
 
@@ -488,7 +489,7 @@ if __name__ == "__main__":
         #     target_wrt_delta_vergence(data, args.save)
 
         # print("return_wrt_critic_value:")
-        # return_wrt_critic_value(data, discount_factor, args.save)
+        #return_wrt_critic_value(data, discount_factor, args.save)
 
         # print("target_wrt_delta_vergence:")
         # target_wrt_delta_vergence(data, discount_factor, args.save)
