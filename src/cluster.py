@@ -84,7 +84,7 @@ cluster_params = {
 }
 # Define algorithm specs here
 algo_params = {
-    "n_episodes": 50000, #200_000
+    "n_episodes": 1000, #200_000
     "flush_every": 10000,
     "n_workers": 14, #40
     "description": description,

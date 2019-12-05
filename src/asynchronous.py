@@ -757,8 +757,9 @@ class Worker:
                 vergence_error = self.environment.robot.get_vergence_error(object_distance)
                 frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
                                    n_episodes, rectangles)
-                image = Image.fromarray(image)
-                image.save(path + f'{episode_number}_{iteration}')
+                image = Image.fromarray(frame)
+                filename = path + "name.jpg"
+                image.save(filename)
                 feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                 ret = self.sess.run(fetches, feed_dict)
                 self.environment.robot.set_action(self.actions_indices_to_values(ret))
