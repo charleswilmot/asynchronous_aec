@@ -750,7 +750,7 @@ class Worker:
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
             for episode_number in range(n_episodes):
-                print("[]: {} episode {}/{}".format(make_images.__name__, self.name, episode_number + 1, n_episodes))
+                print("[]: {} episode {}/{}".format("make_images", self.name, episode_number + 1, n_episodes))
                 self.environment.episode_reset()
                 for iteration in range(self.episode_length):
                     left_image, right_image = self.environment.robot.get_vision()
