@@ -19,6 +19,7 @@ from environment import Environment
 import pickle
 from itertools import cycle, islice, product
 from imageio import get_writer
+import imageio
 from PIL import ImageDraw, Image #, ImageFont
 import logging
 
@@ -716,7 +717,7 @@ class Worker:
         self.pipe.send("{} going IDLE".format(self.name))
 
     def make_video(self, path, n_episodes, training=False):
-        """Generates a video, to be stored under path, concisting of n_episodes
+        """Generates a video, to be stored under path, consisting of n_episodes
         """
         fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
         rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
@@ -740,6 +741,34 @@ class Worker:
                     self.environment.step()
                     print("vergence error: {:.4f}".format(vergence_error))
         self.pipe.send("{} going IDLE".format(self.name))
+
+        def make_images(self, path, n_episodes, training=False):
+            """Generates a video, to be stored under path, consisting of n_episodes
+            """
+            fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
+            rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
+            print("{} will store the video under {}".format(self.name, path))
+            with get_writer(path, fps=25, format="mp4") as writer:
+                for episode_number in range(n_episodes):
+                    print("[]: {} episode {}/{}".format(make_images.__name__, self.name, episode_number + 1, n_episodes))
+                    self.environment.episode_reset()
+                    for iteration in range(self.episode_length):
+                        left_image, right_image = self.environment.robot.get_vision()
+                        object_distance = self.environment.screen.distance
+                        vergence_error = self.environment.robot.get_vergence_error(object_distance)
+                        frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
+                                           n_episodes, rectangles)
+                        imageio.imwrite(path, frame)
+                        #writer.append_data(frame)
+                        #if iteration == 0:
+                        #    for i in range(24):
+                        #        writer.append_data(frame)
+                        feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
+                        ret = self.sess.run(fetches, feed_dict)
+                        self.environment.robot.set_action(self.actions_indices_to_values(ret))
+                        self.environment.step()
+                        print("vergence error: {:.4f}".format(vergence_error))
+            self.pipe.send("{} going IDLE".format(self.name))
 
 
 def get_n_ports(n, start_port=19000):
@@ -804,6 +833,7 @@ class Experiment:
         self.logdir = self.experiment_dir + "/log"
         self.checkpointsdir = self.experiment_dir + "/checkpoints"
         self.videodir = self.experiment_dir + "/video"
+        self.imagedir = self.experiment_dir + "/images"
         self.datadir = self.experiment_dir + "/data"
         self.testdatadir = self.experiment_dir + "/test_data"
         self.confdir = self.experiment_dir + "/conf"
@@ -811,6 +841,7 @@ class Experiment:
             os.makedirs(self.experiment_dir, exist_ok=True)
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.videodir)
+            os.makedirs(self.imagedir)
             os.makedirs(self.datadir)
             os.makedirs(self.testdatadir)
             os.makedirs(self.confdir)
@@ -939,6 +970,12 @@ class Experiment:
         path = self.videodir if outpath is None else outpath
         path += "/{}.mp4".format(name)
         self.here_pipes[0].send(("make_video", path, n_episodes, training))
+        print(self.here_pipes[0].recv())
+
+    def make_images(self, name, n_episodes, training=False, outpath=None):
+        path = self.imagedir if outpath is None else outpath
+        #path += "/{}.mp4".format(name)
+        self.here_pipes[0].send(("make_images", path, n_episodes, training))
         print(self.here_pipes[0].recv())
 
     def restore_model(self, path):
@@ -1116,4 +1153,5 @@ if __name__ == "__main__":
             exp.flush_data()
         exp.save_model()
         exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+        exp.make_images("final", 10)
         exp.make_video("final", 100)
