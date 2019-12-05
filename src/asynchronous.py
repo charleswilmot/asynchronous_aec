@@ -748,26 +748,22 @@ class Worker:
         fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
         rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
         print("{} will store the video under {}".format(self.name, path))
-        with get_writer(path, fps=25, format="mp4") as writer:
-            for episode_number in range(n_episodes):
-                print("[]: {} episode {}/{}".format("make_images", self.name, episode_number + 1, n_episodes))
-                self.environment.episode_reset()
-                for iteration in range(self.episode_length):
-                    left_image, right_image = self.environment.robot.get_vision()
-                    object_distance = self.environment.screen.distance
-                    vergence_error = self.environment.robot.get_vergence_error(object_distance)
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
-                                       n_episodes, rectangles)
-                    imageio.imwrite(path, frame)
-                    #writer.append_data(frame)
-                    #if iteration == 0:
-                    #    for i in range(24):
-                    #        writer.append_data(frame)
-                    feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
-                    ret = self.sess.run(fetches, feed_dict)
-                    self.environment.robot.set_action(self.actions_indices_to_values(ret))
-                    self.environment.step()
-                    print("vergence error: {:.4f}".format(vergence_error))
+        for episode_number in range(n_episodes):
+            print("[]: {} episode {}/{}".format("make_images", self.name, episode_number + 1, n_episodes))
+            self.environment.episode_reset()
+            for iteration in range(self.episode_length):
+                left_image, right_image = self.environment.robot.get_vision()
+                object_distance = self.environment.screen.distance
+                vergence_error = self.environment.robot.get_vergence_error(object_distance)
+                frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
+                                   n_episodes, rectangles)
+                image = Image.fromarray(image)
+                image.save(path + f'{episode_number}_{iteration}')
+                feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
+                ret = self.sess.run(fetches, feed_dict)
+                self.environment.robot.set_action(self.actions_indices_to_values(ret))
+                self.environment.step()
+                print("vergence error: {:.4f}".format(vergence_error))
         self.pipe.send("{} going IDLE".format(self.name))
 
 
