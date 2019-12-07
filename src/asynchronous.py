@@ -48,7 +48,7 @@ anaglyph_matrix = np.array([
     ])
 
 
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, iteration=None):
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, add_text=None):
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
@@ -62,11 +62,8 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
         object_distance, vergence_error, episode_number, total_episode_number,
     )
-    if iteration:
-        string_iteration = "Iteration {}".format(
-            iteration
-        )
-        drawer.text((20, 150), string_iteration, fill=(255, 255, 0))
+    if add_text:
+        drawer.text((20, 200), add_text, fill=(255, 255, 0))
     drawer.text((20,15), string, fill=(255,255,0))
     return np.array(image, dtype=np.uint8)
 
@@ -759,8 +756,12 @@ class Worker:
                 if iteration == 0 or iteration == (self.episode_length-1):
                     object_distance = self.environment.screen.distance
                     vergence_error = self.environment.robot.get_vergence_error(object_distance)
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
-                                       n_episodes, rectangles, str(iteration))
+                    if iteration == 0:
+                        frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
+                                       n_episodes, rectangles, 'before')
+                    else:
+                        frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
+                                       n_episodes, rectangles, 'after')
                     image = Image.fromarray(frame)
                     filepath = path + "/{}_{}.jpg".format(episode_number, iteration)
                     image.save(filepath)
