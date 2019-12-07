@@ -48,7 +48,7 @@ anaglyph_matrix = np.array([
     ])
 
 
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, iteration=""):
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, iteration=None):
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
@@ -59,10 +59,15 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     drawer = ImageDraw.Draw(image)
     for rec in rectangles:
         drawer.rectangle(rec, outline=(50, 0, 50, 50))
-    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}\nIteration {}".format(
-        object_distance, vergence_error, episode_number, total_episode_number, iteration
+    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
+        object_distance, vergence_error, episode_number, total_episode_number,
     )
+    if iteration:
+        string_iteration = "Iteration {}".format(
+            iteration
+        )
     drawer.text((20,15), string, fill=(255,255,0))
+    drawer.text((20, 55), string_iteration, fill=(255, 0, 0))
     return np.array(image, dtype=np.uint8)
 
 
@@ -1013,9 +1018,13 @@ def make_experiment_path(date=None, mlr=None, clr=None, description=None):
     date = date if date else time.strftime("%Y_%m_%d-%H.%M.%S", time.localtime())
     mlr = mlr if mlr else default_mlr
     clr = clr if clr else default_clr
-    description = ("__" + description) if description else ""
-    experiment_dir = "../experiments/{}_mlr{:.2e}_clr{:.2e}{}".format(
-        date, mlr, clr, description)
+    #description = ("__" + description) if description else ""
+    description = description if description else ""
+    experiment_dir = "../experiments/{}_mlr{:.2e}_clr{:.2e}_{}".format(
+        description,
+        mlr,
+        clr,
+        date)
     return experiment_dir
 
 
