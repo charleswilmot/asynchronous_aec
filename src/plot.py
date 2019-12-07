@@ -496,27 +496,27 @@ if __name__ == "__main__":
 
 
 
-        print("preference for correct action")
-        for i in range(3):
-            preference_for_correct_action(data, scale=i, save=args.save)
-        preference_for_correct_action(data, save=args.save)
-        print("action_wrt_vergence:")
-        action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
-        print("action_wrt_vergence:")
-        action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
+        # print("preference for correct action")
+        # for i in range(3):
+        #     preference_for_correct_action(data, scale=i, save=args.save)
+        # preference_for_correct_action(data, save=args.save)
+        # print("action_wrt_vergence:")
+        # action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
+        # print("action_wrt_vergence:")
+        # action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
         print("vergence_wrt_object_distance:")
         vergence_wrt_object_distance(data, args.save)
-        for i in range(3):
-            action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
+        # for i in range(3):
+        #     action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
 
         # print("v shape")
         # delta_reward_wrt_delta_vergence(data, args.save)
-
-        data = get_data(path)
-
-        print("vergence_error_episode_end_wrt_episode:")
-        vergence_error_episode_end_wrt_episode(data, args.save)
-        print("vergence_episode_end_wrt_episode:")
-        vergence_episode_end_wrt_episode(data, args.save)
-        print("mean_abs_vergence_error_episode_end_wrt_episode:")
-        mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
+        #
+        # data = get_data(path)
+        #
+        # print("vergence_error_episode_end_wrt_episode:")
+        # vergence_error_episode_end_wrt_episode(data, args.save)
+        # print("vergence_episode_end_wrt_episode:")
+        # vergence_episode_end_wrt_episode(data, args.save)
+        # print("mean_abs_vergence_error_episode_end_wrt_episode:")
+        # mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
