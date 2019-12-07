@@ -27,9 +27,9 @@ import logging
 dttest_data = np.dtype([
     ("action_index", (np.int32, 3)),
     ("action_value", (np.float32, 3)),
-    ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (dttest_data shoud be member of the worker)
-    ("critic_value_pan", (np.float32, 9)),
-    ("critic_value_vergence", (np.float32, 9)),
+    ("critic_value_tilt", (np.float32, 3)),  # 9 <--> n_actions_per_joint (dttest_data should be member of the worker)
+    ("critic_value_pan", (np.float32, 3)),
+    ("critic_value_vergence", (np.float32, 3)),
     ("total_reconstruction_error", np.float32),
     ("eye_position", (np.float32, 3)),
     ("eye_speed", (np.float32, 2)),
@@ -182,9 +182,10 @@ class Worker:
         self.buffer = Buffer(size=model_buffer_size)
         self.pipe = pipe
         self.logdir = logdir
-        self.n_actions_per_joint = 9
+        self.n_actions_per_joint = 3
         # todo: see Conf object: put ratios in the Conf object
         # self.ratios = list(range(1, 9))
+        # todo: check out more actions
         self.ratios = [1, 2, 3]
         self.define_networks()
         self.define_actions_sets()
@@ -659,12 +660,7 @@ class Worker:
         # tilt
         self.action_set_tilt = np.zeros(self.n_actions_per_joint)
         # pan
-        half_pixel_in_angle = 90 / 320 / 2
-        mini = half_pixel_in_angle
-        maxi = half_pixel_in_angle * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        self.action_set_pan = np.concatenate([negative, [0], positive])
+        self.action_set_pan = np.zeros(self.n_actions_per_joint)
         # vergence
         half_pixel_in_angle = 90 / 320 / 2
         mini = half_pixel_in_angle
