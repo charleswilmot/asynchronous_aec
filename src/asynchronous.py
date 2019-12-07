@@ -66,8 +66,8 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
         string_iteration = "Iteration {}".format(
             iteration
         )
+        drawer.text((20, 150), string_iteration, fill=(255, 255, 0))
     drawer.text((20,15), string, fill=(255,255,0))
-    drawer.text((20, 55), string_iteration, fill=(255, 0, 0))
     return np.array(image, dtype=np.uint8)
 
 
