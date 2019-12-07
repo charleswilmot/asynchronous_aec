@@ -48,7 +48,7 @@ anaglyph_matrix = np.array([
     ])
 
 
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles):
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, iteration=""):
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
@@ -59,8 +59,8 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     drawer = ImageDraw.Draw(image)
     for rec in rectangles:
         drawer.rectangle(rec, outline=(50, 0, 50, 50))
-    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
-        object_distance, vergence_error, episode_number, total_episode_number
+    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}\nIteration {}".format(
+        object_distance, vergence_error, episode_number, total_episode_number, iteration
     )
     drawer.text((20,15), string, fill=(255,255,0))
     return np.array(image, dtype=np.uint8)
@@ -731,7 +731,7 @@ class Worker:
                     vergence_error = self.environment.robot.get_vergence_error(object_distance)
                     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
                     writer.append_data(frame)
-                    if iteration == 0 or iteration == len(self.episode_length)-1:
+                    if iteration == 0 or iteration == (self.episode_length-1):
                         for i in range(24):
                             writer.append_data(frame)
                     feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
@@ -751,14 +751,21 @@ class Worker:
             self.environment.episode_reset()
             for iteration in range(self.episode_length):
                 left_image, right_image = self.environment.robot.get_vision()
-                if iteration == 0 or iteration == (len(self.episode_length)-1):
+                if iteration == 0 or iteration == (self.episode_length-1):
                     object_distance = self.environment.screen.distance
                     vergence_error = self.environment.robot.get_vergence_error(object_distance)
                     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
-                                       n_episodes, rectangles)
+                                       n_episodes, rectangles, str(iteration))
                     image = Image.fromarray(frame)
-                    filename = path + "/images/" + "{}.jpg".format(episode_number + iteration)
-                    image.save(filename)
+                    filepath = path + "/{}_{}.jpg".format(episode_number, iteration)
+                    image.save(filepath)
+                    if iteration == 0:
+                        zero_frame = frame
+                    else:
+                        stacked_image = np.hstack((zero_frame,frame))
+                        image = Image.fromarray(stacked_image)
+                        filepath = path + "/{}_stacked.jpg".format(episode_number)
+                        image.save(filepath)
                 feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image]}
                 ret = self.sess.run(fetches, feed_dict)
                 self.environment.robot.set_action(self.actions_indices_to_values(ret))
