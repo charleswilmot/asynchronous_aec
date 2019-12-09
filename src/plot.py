@@ -167,6 +167,8 @@ class MidPointNorm(Normalize):
                 return  val*abs(vmax-midpoint) + midpoint
 
 
+#---------------------------------------------------------------------------------------
+
 def delta_reward_wrt_delta_vergence(data, save=False):
     gridsize = 100
     data = group_by_episode(data)
@@ -412,18 +414,21 @@ def vergence_episode_end_wrt_episode(data, save=False):
 def vergence_wrt_object_distance(data, save=False):
     data = group_by_episode(data)
     data = {k: v[:, -1] for k, v in data.items()}
+
     fig = plt.figure()
     ax = fig.add_subplot(111)
     object_distance = data["object_distance"]
     vergence = data["eyes_position"][:, -1]
+    print(data["eyes_position"])
     rewards = data["total_reward"]
     X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
-    correct = to_angle(X)
+    correct_vergence = to_angle(X)
     ax.scatter(object_distance, vergence, alpha=0.1)
-    ax.plot(X, correct, "k-")
+    ax.plot(X, correct_vergence, "k-")
     ax.set_xlabel("object position in meters")
     ax.set_ylabel("vergence position in degrees")
     ax.set_title("final vergence wrt object position")
+
     if save:
         fig.savefig(plotpath + "/vergence_wrt_object_distance.png")
     else:
@@ -470,7 +475,7 @@ if __name__ == "__main__":
         action_set = define_actions_set(n_actions_per_joint)
 
         data = get_data(path, -5)
-        print(data)
+        #print(data)
         if args.save:
             os.mkdir(plotpath)
 
@@ -500,8 +505,6 @@ if __name__ == "__main__":
         # action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
         # print("action_wrt_vergence:")
         # action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
-        print("vergence_wrt_object_distance:")
-        vergence_wrt_object_distance(data, args.save)
         # for i in range(3):
         #     action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
 
@@ -516,3 +519,6 @@ if __name__ == "__main__":
         # vergence_episode_end_wrt_episode(data, args.save)
         # print("mean_abs_vergence_error_episode_end_wrt_episode:")
         # mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
+
+        print("vergence_wrt_object_distance:")
+        vergence_wrt_object_distance(data, args.save)
