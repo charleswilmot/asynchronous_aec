@@ -5,7 +5,7 @@ from matplotlib import cbook
 from matplotlib.cm import seismic
 from matplotlib.colors import ListedColormap, Normalize
 from collections import defaultdict
-from utils import to_angle
+from utils import *
 from scipy.stats import linregress, gaussian_kde, binned_statistic
 from scipy.signal import savgol_filter
 import os
@@ -71,7 +71,7 @@ def get_data_nonmerged(path, flush_id=None):
         if flush_id < 0:
             flush_ids = list(worker_ids[0])
             flush_ids.sort()
-            return get_data_nonmerged(path, flush_ids[flush_id:])
+            return get_data_nonmerged(path, flush_ids[flush_id:]) #TODO: Why from 'flush_id:'
         data = []
         for worker_id in worker_ids:
             filename = "/worker_{:04d}_flush_{:04d}.pkl".format(worker_id, flush_id)
@@ -467,14 +467,10 @@ if __name__ == "__main__":
             discount_factor = conf.discount_factor
         ratios = list(range(1, 9))
         n_actions_per_joint = 9
-        n = n_actions_per_joint // 2
-        mini = 90 / 320 / 2
-        maxi = 90 / 320 / 2 * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        action_set = np.concatenate([negative, [0], positive])
+        action_set = define_actions_set(n_actions_per_joint)
 
         data = get_data(path, -5)
+        print(data)
         if args.save:
             os.mkdir(plotpath)
 
