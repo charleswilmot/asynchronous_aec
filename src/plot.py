@@ -420,6 +420,7 @@ def vergence_wrt_object_distance(data, save=False):
     object_distance = data["object_distance"]
     vergence = data["eyes_position"][:, -1]
     print(data["eyes_position"])
+    print(vergence.shape)
     rewards = data["total_reward"]
     X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
     correct_vergence = to_angle(X)
@@ -431,6 +432,32 @@ def vergence_wrt_object_distance(data, save=False):
 
     if save:
         fig.savefig(plotpath + "/vergence_wrt_object_distance.png")
+    else:
+        plt.show()
+    plt.close(fig)
+
+def x_wrt_object_distance(data, joint, save=False):
+    names = {0: "Tilt", 1: "Pan", 2: "Vergance"}
+    data = group_by_episode(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    object_distance = data["object_distance"]
+    vergence = data["eyes_position"][:, joint]
+    print(data["eyes_position"])
+    print(vergence.shape)
+    rewards = data["total_reward"]
+    X = np.linspace(np.min(object_distance), np.max(object_distance), 100)
+    correct_vergence = to_angle(X)
+    ax.scatter(object_distance, vergence, alpha=0.1)
+    ax.plot(X, correct_vergence, "k-")
+    ax.set_xlabel("object position in meters")
+    ax.set_ylabel("{} position in degrees".format(names[joint]))
+    ax.set_title("final {} wrt object position".format(names[joint]))
+
+    if save:
+        fig.savefig(plotpath + "/{}_wrt_object_distance.png".format(names[joint]))
     else:
         plt.show()
     plt.close(fig)
@@ -521,4 +548,5 @@ if __name__ == "__main__":
         # mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
 
         print("vergence_wrt_object_distance:")
-        vergence_wrt_object_distance(data, args.save)
+        for i in range(3):
+            x_wrt_object_distance(data, i, args.save)
