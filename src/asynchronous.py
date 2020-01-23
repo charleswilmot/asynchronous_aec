@@ -181,8 +181,8 @@ class Worker:
         self.logdir = logdir
         self.n_actions_per_joint = 9
         # todo: see Conf object: put ratios in the Conf object
-        # self.ratios = list(range(1, 9))
-        self.ratios = [1, 2, 3]
+        self.ratios = list(range(1, 2)) # Last number is excluded: list(range(1, 3)) -> [1, 2]
+        #self.ratios = [1, 2, 3]
         self.define_networks()
         self.define_actions_sets()
         self.end_episode_data = []

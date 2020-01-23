@@ -60,7 +60,7 @@ if __name__ == "__main__":
     # }
     test_conf = {"test_descriptions": {}, "test_cases": np.zeros(0, dtype=dttest_case)}
 
-    test_description, test_cases = generate_vergence_trajectory(range(20), [1, 2, 3, 4], [-3, -2, -1, 1, 2, 3])
+    test_description, test_cases = generate_vergence_trajectory(range(20), [0.5, 1, 2, 3, 3.5], [-2, -1, 1, 2])
     update_test_conf(test_conf, test_description, test_cases)
 
     with open("../test_conf/vergence_trajectory_4_distances.pkl", "wb") as f:

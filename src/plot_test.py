@@ -4,7 +4,8 @@ import numpy as np
 import argparse
 from itertools import product
 from utils import to_angle
-
+import os
+from PIL import Image
 
 OBJECT_DISTANCE = 1
 VERGENCE_ERROR = 2
@@ -71,6 +72,31 @@ def plot_vergence_trajectory_sub(ax, data):
     ax.set_title("Object distance  {:.4f}".format(data[0][0]["object_distance"]))
 
 
+#TODO: Vlean this method
+def plot_stimulus_path(fig, lists_of_param_anchors, data):
+    path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
+    #path = "../local_copies_of_aecgroup/mcgillManMade_600x600_bmp_selection/"
+    textures_names = os.listdir(path)
+    textures_list = [np.array(Image.open(path + name), dtype=np.uint8) for name in textures_names]
+    lim_stimulus = min(10, len(lists_of_param_anchors["stimulus"]))
+    data = filter_data(data, **lists_of_param_anchors)
+    list_of_subdata = [filter_data(data, stimulus=[s]) for s in lists_of_param_anchors["stimulus"][:lim_stimulus]]
+    n_subplots = lim_stimulus * 2
+    for subplot_index, elem in enumerate(list_of_subdata):
+        ax = get_new_ax(fig, n_subplots, subplot_index * 2)
+        test_data = np.array([b for a, b in elem])
+        ax.boxplot(test_data["vergence_error"], notch=True, showfliers=False)
+        ax.axhline(0, color="k")
+        ax.axhline(90 / 320, color="k", linestyle="--")
+        ax.axhline(-90 / 320, color="k", linestyle="--")
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Vergence error (deg)")
+        #ax.set_ylim([np.min(test_cases["vergence_error"]) - 1, np.max(test_cases["vergence_error"]) + 1])
+        ax.set_title("Stimulus  {:.1f}".format(elem[0][0]["stimulus"]))
+        ax2 = get_new_ax(fig, n_subplots, (subplot_index * 2) + 1)
+        ax2.imshow(textures_list[elem[0][0]["stimulus"]])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -88,14 +114,16 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-
     fig = plt.figure()
 
     with open(args.test_conf_path, "rb") as f:
         lists_of_param_anchors = pickle.load(f)["test_descriptions"]["vergence_trajectory"]
+        #print(lists_of_param_anchors)
 
     with open(args.path, "rb") as f:
         data = pickle.load(f)
 
+
+    #plot_stimulus_path(fig, lists_of_param_anchors, data)
     plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
     plt.show()

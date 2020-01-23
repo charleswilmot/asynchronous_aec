@@ -89,7 +89,7 @@ This anchor engenders all test_cases with stimulus 0, 1, 2 at every distances 0.
 dttest_case = np.dtype([
     ("stimulus", np.int32),            # the id of the stimulus that must be used
     ("object_distance", np.float32),   # the distance at which the stimulus is placed
-    ("vergence_error", np.float32),    # the initial vergence error of the eyes wrt the scren
+    ("vergence_error", np.float32),    # the initial vergence error of the eyes wrt the screen
     ("speed_error", (np.float32, 2)),  # the initial speed error wrt the screen
     ("n_iterations", np.int32)         # the number of iterations that must be simulated
 ])
