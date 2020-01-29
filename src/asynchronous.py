@@ -148,7 +148,7 @@ class Conf:
         self.discount_factor = args.discount_factor
         self.episode_length = args.episode_length
         self.update_factor = args.update_factor
-        self.buffer_size = 200
+        self.buffer_size = 20
 
 
 class Worker:
