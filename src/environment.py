@@ -114,7 +114,7 @@ class Environment:
 
 
 class StereoVisionRobot:
-    def __init__(self, min_distance, max_distance, default_joint_limit_type="stick"):
+    def __init__(self, min_distance, max_distance, default_joint_limit_type="none"):
         self.cam_left = VisionSensor("vs_cam_left#")
         self.cam_right = VisionSensor("vs_cam_right#")
         self.tilt_left = Joint("vs_eye_tilt_left#")
@@ -181,7 +181,7 @@ class StereoVisionRobot:
     def set_pan_position(self, alpha, joint_limit_type=None):
         rad_alpha = rad(alpha)
         vergence = self.pan_left.get_joint_position() - self.pan_right.get_joint_position()
-        left, right = self._check_pan_limit(vergence + rad_alpha, vergence + rad_alpha, joint_limit_type)
+        left, right = self._check_pan_limit((vergence/2) + rad_alpha, -(vergence/2) + rad_alpha, joint_limit_type)
         self.pan_left.set_joint_position(left)
         self.pan_right.set_joint_position(right)
 
@@ -260,18 +260,31 @@ if __name__ == "__main__":
 
     env = Environment(False)
     env.step()
-    env.robot.reset_vergence_position()
+    env.robot.set_position([0, 0, 0], joint_limit_type="none")
     env.step()
-    env.robot.set_delta_vergence_position(30)
-    env.step()
-    print("measured vergence: {}".format(env.robot.get_vergence_position()))
+    time.sleep(6)
     t0 = time.time()
+    for i in range(15):
+        env.robot.set_delta_vergence_position(1)
+        print(env.robot.get_vergence_position())
+        time.sleep(0.5)
+    for i in range(30):
+        env.robot.set_delta_vergence_position(-1)
+        print(env.robot.get_vergence_position())
+        time.sleep(0.5)
     for i in range(10):
-        env.episode_reset()
-        for i in range(10):
-            env.robot.set_delta_vergence_position(1)
-            env.step()
-            env.robot.get_vision()
+        env.robot.set_delta_vergence_position(1)
+        print(env.robot.get_vergence_position())
+        time.sleep(0.5)
+    for i in range(10):
+        env.robot.set_pan_position(i)
+        print(env.robot.get_pan_position())
+        time.sleep(0.5)
+        # env.episode_reset()
+        # for i in range(10):
+        #     env.robot.set_delta_vergence_position(1)
+        #     env.step()
+        #     env.robot.get_vision()
     t1 = time.time()
     env.close()
     print("About {} sec per episode".format((t1 - t0) / 10))

@@ -185,7 +185,7 @@ def delta_reward_wrt_delta_vergence(data, save=False):
                     vergence_error_end.append(v1)
                     delta_reward.append(r1[ratio_index] - r0[ratio_index])
         print("ratio", r, "done")
-        ax = fig.add_subplot(2, 4, ratio_index + 1, facecolor='grey')
+        ax = fig.add_subplot(2, 4, ratio_index + 1)
         hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10)
         # hexbin = ax.hexbin(vergence_error_start, vergence_error_end, delta_reward, cmap=seismic, norm=None, reduce_C_function=np.std, gridsize=gridsize, mincnt=10)
         cb = fig.colorbar(hexbin, ax=ax)
@@ -464,7 +464,7 @@ if __name__ == "__main__":
         with open(path + "/../conf/worker_conf.pkl", "rb") as f:
             conf = pickle.load(f)
             discount_factor = conf.discount_factor
-        ratios = list(range(1, 9))
+        ratios = list(range(1, 4))
         n_actions_per_joint = 9
         action_set = define_actions_set(n_actions_per_joint)
 
@@ -491,27 +491,27 @@ if __name__ == "__main__":
 
 
 
-        print("preference for correct action")
-        for i in range(3):
-            preference_for_correct_action(data, scale=i, save=args.save)
-        preference_for_correct_action(data, save=args.save)
-        print("action_wrt_vergence:")
-        action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
-        print("action_wrt_vergence:")
-        action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
-        print("vergence_wrt_object_distance:")
-        vergence_wrt_object_distance(data, args.save)
-        for i in range(3):
-            action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
+        # print("preference for correct action")
+        # for i in range(3):
+        #     preference_for_correct_action(data, scale=i, save=args.save)
+        # preference_for_correct_action(data, save=args.save)
+        # print("action_wrt_vergence:")
+        # action_wrt_vergence(data, 0.5, 5, greedy=False, save=args.save)
+        # print("action_wrt_vergence:")
+        # action_wrt_vergence(data, 0.5, 5, greedy=True, save=args.save)
+        # print("vergence_wrt_object_distance:")
+        # vergence_wrt_object_distance(data, args.save)
+        # for i in range(3):
+        #     action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
 
         # print("v shape")
-        # delta_reward_wrt_delta_vergence(data, args.save)
+        delta_reward_wrt_delta_vergence(data, args.save)
 
         data = get_data(path)
 
-        print("vergence_error_episode_end_wrt_episode:")
-        vergence_error_episode_end_wrt_episode(data, args.save)
-        print("vergence_episode_end_wrt_episode:")
-        vergence_episode_end_wrt_episode(data, args.save)
-        print("mean_abs_vergence_error_episode_end_wrt_episode:")
-        mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)
+        # print("vergence_error_episode_end_wrt_episode:")
+        # vergence_error_episode_end_wrt_episode(data, args.save)
+        # print("vergence_episode_end_wrt_episode:")
+        # vergence_episode_end_wrt_episode(data, args.save)
+        # print("mean_abs_vergence_error_episode_end_wrt_episode:")
+        # mean_abs_vergence_error_episode_end_wrt_episode(data, args.save)

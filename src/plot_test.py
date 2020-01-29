@@ -72,6 +72,37 @@ def plot_vergence_trajectory_sub(ax, data):
     ax.set_title("Object distance  {:.4f}".format(data[0][0]["object_distance"]))
 
 
+def plot_tilt_path_all(fig, lists_of_param_anchors, data):
+    # generate sub lists of param anchors
+    data = filter_data(data, **lists_of_param_anchors)
+    list_of_subdata = [filter_data(data, object_distances=[d]) for d in lists_of_param_anchors["object_distances"]]
+    n_subplots = len(lists_of_param_anchors["object_distances"])
+    # for each sublist, plot in an ax
+    for subplot_index, subdata in enumerate(list_of_subdata):
+        ax = get_new_ax(fig, n_subplots, subplot_index, methode="square")
+        plot_tilt_path(ax, subdata)
+
+
+def plot_tilt_path(ax, data):
+    test_data = np.array([b for a, b in data])
+    result = test_data["eye_position"][np.random.randint(test_data["eye_position"].shape[0], size=40), :]
+    for elem in result:
+        ax.plot(range(len(elem)), elem[:, 0])
+
+
+def plot_vergence_path(fig, lists_of_param_anchors, data):
+    data = filter_data(data, **lists_of_param_anchors)
+    test_data = np.array([b for a, b in data])
+    n_subplots = 1
+    ax = get_new_ax(fig, n_subplots, 0)
+    result = test_data["eye_position"][np.random.randint(test_data["eye_position"].shape[0], size=40), :]
+    print(result)
+    print(np.shape(result))
+    print(result[0][2])
+    for elem in result:
+        ax.plot(range(len(elem)), elem[:, 2], )
+
+
 #TODO: Vlean this method
 def plot_stimulus_path(fig, lists_of_param_anchors, data):
     path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
@@ -125,5 +156,6 @@ if __name__ == "__main__":
 
 
     #plot_stimulus_path(fig, lists_of_param_anchors, data)
-    plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
+    plot_tilt_path_all(fig, lists_of_param_anchors, data)
+    #+plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
     plt.show()
