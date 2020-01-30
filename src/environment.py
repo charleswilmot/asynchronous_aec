@@ -83,12 +83,10 @@ class Environment:
     def __init__(self, headless=True):
         self.pyrep = PyRep()
         self.pyrep.launch("/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=headless)
-        #self.pyrep.launch("../local_copies_of_aecgroup/stereo_vision_robot.ttt", headless=headless)
         min_distance = 0.5
         max_distance = 5
         max_speed = 0
         path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
-        #path = "../local_copies_of_aecgroup/mcgillManMade_600x600_bmp_selection/"
         textures_names = listdir(path)
         textures_list = [self.pyrep.create_texture(path + name)[1] for name in textures_names]
         self.screen = RandomScreen(min_distance, max_distance, max_speed, textures_list)

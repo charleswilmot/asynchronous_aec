@@ -156,6 +156,6 @@ if __name__ == "__main__":
 
 
     #plot_stimulus_path(fig, lists_of_param_anchors, data)
-    plot_tilt_path_all(fig, lists_of_param_anchors, data)
-    #+plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
+    #plot_tilt_path_all(fig, lists_of_param_anchors, data)
+    plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
     plt.show()
