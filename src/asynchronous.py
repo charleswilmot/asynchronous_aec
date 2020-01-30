@@ -213,7 +213,7 @@ class Worker:
             (320 - (crop_side_length * ratio)) // 2,
             (320 + (crop_side_length * ratio)) // 2)
         # CROP
-        scale = self.cams_stacked[:, height_slice, width_slice, :]
+        scale = self.left_cams_stacked[:, height_slice, width_slice, :]
         # DOWNSCALE
         scale = tf.image.resize_bilinear(scale, [crop_side_length, crop_side_length])
         self.scales_inp[ratio] = tf.placeholder_with_default(scale * 2 - 1, shape=scale.get_shape())
@@ -222,15 +222,15 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
-        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 * 2, 1, 1, "valid", activation_fn=None)
+        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
         target = tf.extract_image_patches(
             inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
         )
@@ -248,22 +248,18 @@ class Worker:
 
         ### Images for tensorboard:
         n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
-        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 6))
         left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 12))
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
         left = left_right[..., :3]
-        right = left_right[..., 3:6]
-        left_before = left_right[..., 6:9]
-        right_before = left_right[..., 9:]
-        image_left = tf.concat([left, right], axis=0)
-        left_right = tf.reshape(target[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        left_before = left_right[..., 3:]
+        image_left = tf.concat([left, left_before], axis=0)
+        left_right = tf.reshape(target[-1], (n_patches, n_patches, filter_size, filter_size, 6))
         left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 12))
+        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
         left = left_right[..., :3]
-        right = left_right[..., 3:6]
-        left_before = left_right[..., 6:9]
-        right_before = left_right[..., 9:]
-        image_right = tf.concat([left, right], axis=0)
+        left_before = left_right[..., 3:]
+        image_right = tf.concat([left, left_before], axis=0)
         self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
 
     def define_critic_patch(self, ratio, joint_name):
@@ -419,12 +415,8 @@ class Worker:
 
     def define_networks(self):
         self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
-        self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
         self.left_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
-        self.right_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32)
-        self.cams = tf.concat([self.left_cam, self.right_cam], axis=-1)  # (None, 240, 320, 6)
-        self.cams_before = tf.concat([self.left_cam_before, self.right_cam_before], axis=-1)  # (None, 240, 320, 6)
-        self.cams_stacked = tf.concat([self.cams, self.cams_before], axis=-1)  # (None, 240, 320, 12)
+        self.left_cams_stacked = tf.concat([self.left_cam, self.left_cam_before], axis=-1)  # (None, 240, 320, 12)
         ### graph definitions:
         self.define_inps()
         self.define_autoencoder()
@@ -525,8 +517,7 @@ class Worker:
             for i in range(test_case["n_iterations"]):
                 left_image_before, right_image_before = left_image, right_image
                 left_image, right_image = self.environment.robot.get_vision()
-                feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before:
-                    [left_image_before], self.right_cam_before: [right_image_before]}
+                feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
                 data = self.sess.run(fetches, feed_dict=feed_dict)
                 action_value = self.actions_indices_to_values(data["action_index"])
                 test_data[i]["action_index"] = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
@@ -557,8 +548,7 @@ class Worker:
         for iteration in range(self.episode_length):
             left_image_before, right_image_before = left_image, right_image
             left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before:
-                [left_image_before], self.right_cam_before: [right_image_before]}
+            feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
             ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
             reward = total_reward__partial - total_reward__partial_new[0]
             total_reward__partial = total_reward__partial_new[0]
@@ -602,8 +592,7 @@ class Worker:
         for iteration in range(self.episode_length):
             left_image_before, right_image_before = left_image, right_image
             left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before:
-                [left_image_before], self.right_cam_before: [right_image_before]}
+            feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
             ret = self.sess.run(fetches_store, feed_dict)
             ### Emulate reward computation (reward is (rec_err_i - rec_err_i+1) / 0.01)
             scale_reward__partial_new = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
@@ -674,15 +663,22 @@ class Worker:
         n = self.n_actions_per_joint // 2
         # tilt
         self.action_set_tilt = np.zeros(self.n_actions_per_joint)
-        # pan
-        self.action_set_pan = np.zeros(self.n_actions_per_joint)
-        # vergence
-        half_pixel_in_angle = 90 / 320 / 2
+        half_pixel_in_angle = 90 / 240 / 2
         mini = half_pixel_in_angle
         maxi = half_pixel_in_angle * 2 ** (n - 1)
         positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
         negative = -positive[::-1]
-        self.action_set_vergence = np.concatenate([negative, [0], positive])
+        self.action_set_tilt = np.concatenate([negative, [0], positive])
+        # pan
+        self.action_set_pan = np.zeros(self.n_actions_per_joint)
+        # vergence
+        # half_pixel_in_angle = 90 / 320 / 2
+        # mini = half_pixel_in_angle
+        # maxi = half_pixel_in_angle * 2 ** (n - 1)
+        # positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
+        # negative = -positive[::-1]
+        # self.action_set_vergence = np.concatenate([negative, [0], positive])
+        self.action_set_vergence = np.zeros(self.n_actions_per_joint)
 
     def actions_indices_to_values(self, indices_dict):
         return [self.action_set_tilt[indices_dict["tilt"]],
@@ -750,8 +746,7 @@ class Worker:
                     if iteration == 0:
                         for i in range(24):
                             writer.append_data(frame)
-                    feed_dict = {self.left_cam: [left_image], self.right_cam: [right_image], self.left_cam_before:
-                        [left_image_before], self.right_cam_before: [right_image_before]}
+                    feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
                     ret = self.sess.run(fetches, feed_dict)
                     self.environment.robot.set_action(self.actions_indices_to_values(ret))
                     self.environment.step()

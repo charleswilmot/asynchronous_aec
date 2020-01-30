@@ -40,7 +40,8 @@ class RandomScreen(SquaredPlane):
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
         self.speed = np.random.uniform(0, self.max_speed)
-        self.direction = np.random.uniform(0, 2 * np.pi)
+        self.direction = np.random.choice([0.5 * np.pi, 1.5 * np.pi])
+        #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(0)
 
@@ -85,7 +86,7 @@ class Environment:
         self.pyrep.launch("/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=headless)
         min_distance = 0.5
         max_distance = 5
-        max_speed = 0
+        max_speed = 0.5
         path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
         textures_names = listdir(path)
         textures_list = [self.pyrep.create_texture(path + name)[1] for name in textures_names]
@@ -104,6 +105,7 @@ class Environment:
         self.screen.episode_reset()
         # reset robot
         self.robot.episode_reset()
+        self.robot.set_vergence_position(to_angle(self.screen.distance))
         self.pyrep.step()
 
     def close(self):

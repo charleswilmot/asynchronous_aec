@@ -72,7 +72,7 @@ class ClusterQueue:
         time.sleep(10)
 
 # General parameters
-description = "2 Frames Vergence Only"
+description = "2 Frames Tilt Only Initial Try"
 
 # Define cluster specs here
 cluster_params = {
