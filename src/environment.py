@@ -39,7 +39,9 @@ class RandomScreen(SquaredPlane):
 
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        self.speed = np.random.uniform(0, self.max_speed)
+        #self.speed = np.random.uniform(0, self.max_speed)
+        self.speed = 0.01
+        #self.direction = 0
         self.direction = np.random.choice([0.5 * np.pi, 1.5 * np.pi])
         #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
@@ -51,13 +53,14 @@ class RandomScreen(SquaredPlane):
         if self.speed > 0:
             self.direction = np.arccos(pan_speed / self.speed)
         else:
-            self.direction = 0.0
+            self.direction = 0.0    
         if tilt_speed < 0:
             self.direction = -self.direction
         self.set_episode_iteration(0)
 
     def set_episode_iteration(self, it):
-        self._episode_iteration = 0
+        self._episode_iteration = it
+        print(self.position)
         self.set_position(self.position)
 
     def increment_iteration(self):
@@ -97,7 +100,7 @@ class Environment:
     def step(self):
         # move screen
         self.screen.increment_iteration()
-        # step simulation
+        # step simulationself.set_position
         self.pyrep.step()
 
     def episode_reset(self):
@@ -262,24 +265,29 @@ if __name__ == "__main__":
     env.step()
     env.robot.set_position([0, 0, 0], joint_limit_type="none")
     env.step()
-    time.sleep(6)
+    time.sleep(2)
     t0 = time.time()
-    for i in range(15):
-        env.robot.set_delta_vergence_position(1)
-        print(env.robot.get_vergence_position())
-        time.sleep(0.5)
-    for i in range(30):
-        env.robot.set_delta_vergence_position(-1)
-        print(env.robot.get_vergence_position())
-        time.sleep(0.5)
     for i in range(10):
-        env.robot.set_delta_vergence_position(1)
-        print(env.robot.get_vergence_position())
-        time.sleep(0.5)
-    for i in range(10):
-        env.robot.set_pan_position(i)
-        print(env.robot.get_pan_position())
-        time.sleep(0.5)
+        env.episode_reset()
+        for j in range(15):
+            time.sleep(0.1)
+            env.step()
+    # for i in range(15):
+    #     env.robot.set_delta_vergence_position(1)
+    #     print(env.robot.get_vergence_position())
+    #     time.sleep(0.5)
+    # for i in range(30):
+    #     env.robot.set_delta_vergence_position(-1)
+    #     print(env.robot.get_vergence_position())
+    #     time.sleep(0.5)
+    # for i in range(10):
+    #     env.robot.set_delta_vergence_position(1)
+    #     print(env.robot.get_vergence_position())
+    #     time.sleep(0.5)
+    # for i in range(10):
+    #     env.robot.set_pan_position(i)
+    #     print(env.robot.get_pan_position())
+    #     time.sleep(0.5)
         # env.episode_reset()
         # for i in range(10):
         #     env.robot.set_delta_vergence_position(1)
