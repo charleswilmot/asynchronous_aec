@@ -39,11 +39,11 @@ class RandomScreen(SquaredPlane):
 
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        #self.speed = np.random.uniform(0, self.max_speed)
-        self.speed = 0.01
+        self.speed = np.random.uniform(rad(0.2), rad(0.5))
+        #self.speed = 0.01
         #self.direction = 0
-        self.direction = np.random.choice([0.5 * np.pi, 1.5 * np.pi])
-        #self.direction = np.random.uniform(0, 2 * np.pi)
+        #self.direction = np.random.choice([0.5 * np.pi, 1.5 * np.pi])
+        self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(0)
 
