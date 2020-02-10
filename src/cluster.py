@@ -72,21 +72,21 @@ class ClusterQueue:
         time.sleep(10)
 
 # General parameters
-description = "2 Frames PanTilt Only w. Moving Screen"
+description = "2 Frames PanTilt Only w. Moving Screen Restore"
 
 # Define cluster specs here
 cluster_params = {
     "partition":"sleuths",
     "gres":'gpu:1',
-    "mincpus":40, #40
+    "mincpus":20, #40
     "mem":120000, #90_000
     "description":description,
 }
 # Define algorithm specs here
 algo_params = {
-    "n_episodes":200000, #200_000
+    "n_episodes":400000, #200_000
     "flush_every":20000,
-    "n_workers":40, #40
+    "n_workers":20, #40
     "description":description,
     "critic_learning_rate":1e-4,
     "model_learning_rate":1e-4,
@@ -94,6 +94,7 @@ algo_params = {
     "update_factor":10,
     "episode_length":10,
     "epsilon":0.2,
+    "restore_from": "/home/jkling/asynchronous_aec/experiments/2020_02_06-23.19.07_mlr1.00e-04_clr1.00e-04__2_Frames_PanTilt_Only_w._Moving_Screen/checkpoints/00200071"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
