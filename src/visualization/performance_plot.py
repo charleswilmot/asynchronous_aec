@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from plot import get_data, group_by_episode, vergence_error, savgol_filter
-from plot_test import filter_data
+from visualization.plot_log_data import get_data, group_by_episode, vergence_error
 import pickle
 import os
 import argparse

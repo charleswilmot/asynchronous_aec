@@ -2,8 +2,6 @@ import matplotlib.pyplot as plt
 import pickle
 import numpy as np
 import argparse
-from itertools import product
-from utils import to_angle
 import os
 from PIL import Image
 

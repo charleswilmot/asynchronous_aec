@@ -1,4 +1,3 @@
-from os.path import abspath
 from os import listdir
 from pyrep import PyRep
 from pyrep.const import TextureMappingMode
@@ -6,7 +5,7 @@ from pyrep.objects.vision_sensor import VisionSensor
 from pyrep.objects.shape import Shape
 from pyrep.objects.joint import Joint
 import numpy as np
-from utils import deg, rad, to_angle
+from helper.utils import deg, rad, to_angle
 
 
 class SquaredPlane(Shape):
@@ -39,12 +38,12 @@ class RandomScreen(SquaredPlane):
 
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        self.speed = np.random.uniform(rad(0.2), rad(0.5))
-        #self.speed = 0.01
+        #self.speed = np.random.uniform(rad(0.2), rad(0.5))
+        self.speed = 0.01
         #self.direction = 0
         #self.direction = np.random.choice([0, 0.5 * np.pi, np.pi, 1.5 * np.pi])
-        #self.direction = np.random.choice([rad(0), rad(90), rad(180), rad(270)])
-        self.direction = np.random.uniform(0, 2 * np.pi)
+        self.direction = np.random.choice([rad(90), rad(270)])
+        #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(0)
 
@@ -61,7 +60,6 @@ class RandomScreen(SquaredPlane):
 
     def set_episode_iteration(self, it):
         self._episode_iteration = it
-        print(self.position)
         self.set_position(self.position)
 
     def increment_iteration(self):
@@ -101,7 +99,8 @@ class Environment:
     def step(self):
         # move screen
         self.screen.increment_iteration()
-        # step simulationself.set_position
+        # step simulation
+        # self.set_position
         self.pyrep.step()
 
     def episode_reset(self):
