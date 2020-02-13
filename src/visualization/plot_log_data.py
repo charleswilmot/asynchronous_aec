@@ -52,6 +52,15 @@ def speed_error(eyes_speed, object_speed, pantilt=''):
         return np.sqrt(np.sum((eyes_speed-object_speed)**2, 1))
 
 
+def speed_error_sub(eyes_speed, object_speed, pantilt=''):
+    if pantilt == 'pan':
+        return eyes_speed[:, 0] - object_speed[:, 0]
+    elif pantilt == 'tilt':
+        return eyes_speed[:, 1] - object_speed[:, 1]
+    else:
+        return np.sum(eyes_speed-object_speed, 1)
+
+
 class MidPointNorm(Normalize):
     def __init__(self, midpoint=0, vmin=None, vmax=None, clip=False):
         Normalize.__init__(self,vmin, vmax, clip)
@@ -357,26 +366,6 @@ def preference_for_correct_action(data, scale="all", save=False):
     plt.close(fig)
 
 
-def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    # episode_length = max([d["iteration"] for d in data])
-    # data = [d for d in data if d["iteration"] == episode_length]
-    data = group_by_episode(data)
-    data = {k: v[:, -1] for k, v in data.items()}
-    episode_numbers = data["episode_number"]
-    speed_errors = speed_error(data["eyes_speed"], data["object_speed"], pantilt)
-    ax.plot(episode_numbers, speed_errors, ".", alpha=0.05)
-    ax.set_xlabel("episode")
-    ax.set_ylabel("speed error in degrees")
-    ax.set_title("speed error wrt time")
-    if save:
-        fig.savefig(plotpath + f"/speed_error_wrt_time_{pantilt}.png")
-    else:
-        plt.show()
-    plt.close(fig)
-
-
 def vergence_error_episode_end_wrt_episode(data, save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -470,3 +459,54 @@ def vergence_wrt_object_distance(data, save=False):
     else:
         plt.show()
     plt.close(fig)
+
+
+###
+# SPEED RELATED
+###
+
+def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # episode_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == episode_length]
+    data = group_by_episode(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    episode_numbers = data["episode_number"]
+    speed_errors = speed_error(data["eyes_speed"], data["object_speed"], pantilt)
+    ax.plot(episode_numbers, speed_errors, ".", alpha=0.05)
+    ax.set_xlabel("episode")
+    ax.set_ylabel("speed error in degrees")
+    ax.set_title("speed error wrt time")
+    if save:
+        fig.savefig(plotpath + "/speed_error_wrt_time.png")
+    else:
+        plt.show()
+    plt.close(fig)
+
+
+def delta_reward_wrt_delta_speed(data, plotpath, save=False):
+    gridsize = 100
+    data = group_by_episode(data)
+    n_trajectories = len(data["iteration"])
+    fig = plt.figure()
+    speed_errors = speed_error_sub(data["eyes_speed"], data["object_speed"], 'tilt')
+    speed_error_start = []
+    speed_error_end = []
+    delta_reward = []
+    rewards = data["total_reward"]
+    for i in range(n_trajectories):
+        for v0, r0 in zip(speed_errors[i], rewards[i]):
+            for v1, r1 in zip(speed_errors[i], rewards[i]):
+                speed_error_start.append(v0)
+                speed_error_end.append(v1)
+                delta_reward.append(r1 - r0)
+    ax = fig.add_subplot(111)#, facecolor='grey')
+    hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10, vmin=-1, vmax=1)
+    cb = fig.colorbar(hexbin, ax=ax)
+    cb.set_label("Delta reward")
+    if save:
+        fig.savefig(plotpath + "/delta_reward_wrt_delta_speed.png")
+    else:
+        plt.show()
+        plt.close(fig)

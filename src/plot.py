@@ -79,6 +79,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-o', '--overwrite',
+        action='store_true',
+        help="If turned on, overwrites given folder if exists."
+    )
+
+    parser.add_argument(
         '-n', '--name',
         type=str,
         help="Outdir name",
@@ -103,7 +109,11 @@ if __name__ == "__main__":
         data = get_data(path, -5)
         #print(data)
         if args.save:
-            os.mkdir(plotpath)
+            if os.path.exists(plotpath) and not args.overwrite:
+                print("[ERROR] Path exists. Turn on overwrite option with -o")
+                exit()
+            elif not os.path.exists(plotpath):
+                os.mkdir(plotpath)
 
         # reward_wrt_vergence_all_scales(data, 0.5, 5, args.save)
         # reward_wrt_vergence(data, 0.5, 5, args.save)
@@ -138,10 +148,11 @@ if __name__ == "__main__":
 
         # print("v shape")
         speed_error_episode_end_wrt_episode(data, plotpath, pantilt='pan', save=args.save)
+        delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
 
         #check_data(data, args.save)
 
-        data = get_data(path)
+        #data = get_data(path)
 
         # print("vergence_error_episode_end_wrt_episode:")
         # vergence_error_episode_end_wrt_episode(data, args.save)
