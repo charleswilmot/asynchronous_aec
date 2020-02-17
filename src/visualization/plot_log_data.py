@@ -20,6 +20,7 @@ keys = [
     "scale_critic_values",
     "object_distance",
     "object_speed",
+    "object_position",
     "eyes_position",
     "eyes_speed",
 ]
@@ -41,24 +42,6 @@ def group_by_episode(data):
 def vergence_error(eyes_positions, object_distances):
     vergences = eyes_positions[..., -1]
     return to_angle(object_distances) - vergences
-
-
-def speed_error(eyes_speed, object_speed, pantilt=''):
-    if pantilt == 'pan':
-        return np.sqrt((eyes_speed[:, 0] - object_speed[:, 0]) ** 2)
-    elif pantilt == 'tilt':
-        return np.sqrt((eyes_speed[:, 1] - object_speed[:, 1]) ** 2)
-    else:
-        return np.sqrt(np.sum((eyes_speed-object_speed)**2, 1))
-
-
-def speed_error_sub(eyes_speed, object_speed, pantilt=''):
-    if pantilt == 'pan':
-        return eyes_speed[:, 0] - object_speed[:, 0]
-    elif pantilt == 'tilt':
-        return eyes_speed[:, 1] - object_speed[:, 1]
-    else:
-        return np.sum(eyes_speed-object_speed, 1)
 
 
 class MidPointNorm(Normalize):
@@ -127,8 +110,8 @@ class MidPointNorm(Normalize):
 
 def check_data(data, save=False):
     data = group_by_episode(data)
-    print(data.keys())
-    print(data['eyes_speed'])
+    # print(data.keys())
+    # print(data['eyes_speed'])
 
 
 def delta_reward_wrt_delta_vergence(data, save=False):
@@ -465,6 +448,24 @@ def vergence_wrt_object_distance(data, save=False):
 # SPEED RELATED
 ###
 
+def speed_error(eyes_speed, object_speed, pantilt=''):
+    if pantilt == 'pan':
+        return np.sqrt((eyes_speed[:, 0] - object_speed[:, 0]) ** 2)
+    elif pantilt == 'tilt':
+        return np.sqrt((eyes_speed[:, 1] - object_speed[:, 1]) ** 2)
+    else:
+        return np.sqrt(np.sum((eyes_speed-object_speed)**2, 1))
+
+
+def speed_error_sub(eyes_speed, object_speed, pantilt=''):
+    if pantilt == 'pan':
+        return eyes_speed[:, 0] - object_speed[:, 0]
+    elif pantilt == 'tilt':
+        return eyes_speed[:, 1] - object_speed[:, 1]
+    else:
+        return np.sum(eyes_speed-object_speed, 1)
+
+
 def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -479,7 +480,7 @@ def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
     ax.set_ylabel("speed error in degrees")
     ax.set_title("speed error wrt time")
     if save:
-        fig.savefig(plotpath + "/speed_error_wrt_time.png")
+        fig.savefig(plotpath + "/speed_error_wrt_time_" + pantilt + ".png")
     else:
         plt.show()
     plt.close(fig)
@@ -490,7 +491,9 @@ def delta_reward_wrt_delta_speed(data, plotpath, save=False):
     data = group_by_episode(data)
     n_trajectories = len(data["iteration"])
     fig = plt.figure()
-    speed_errors = speed_error_sub(data["eyes_speed"], data["object_speed"], 'tilt')
+    speed_errors = speed_error_sub(data["eyes_speed"], data["object_speed"], '')
+    print(speed_errors.shape)
+    print(n_trajectories)
     speed_error_start = []
     speed_error_end = []
     delta_reward = []
@@ -510,3 +513,116 @@ def delta_reward_wrt_delta_speed(data, plotpath, save=False):
     else:
         plt.show()
         plt.close(fig)
+
+
+def cart2pol(coord):
+    rho = np.sqrt(coord[0]**2 + coord[2]**2)
+    phi = np.arctan2(coord[2], coord[0])
+    return [rho, phi]
+
+
+def movement(data):
+    data = group_by_episode(data)
+    n_trajectories = len(data["iteration"])
+    np.apply_along_axis(cart2pol, 2, data['eyes_position'])
+    print(data['eyes_position'].shape)
+    print(data['eyes_position'][:,:,0])
+
+
+def generate_sample_data():
+    data = []
+    data_color = []
+    for i in range(5):
+        trajectory = []
+        color = []
+        direction = np.random.uniform(np.deg2rad(0), np.deg2rad(360))
+        speed = np.random.uniform(1, 3)
+        for j in range(10):
+            error = np.deg2rad(6 * (np.random.random_sample() - 0.5))
+            color.append(error + 3)
+            x, y = (speed*j), direction + error
+            trajectory.append((x, y))
+        data.append(trajectory)
+        data_color.append(color)
+    return (data, data_color)
+
+
+def circular_xy_movement_plot(data, plotpath, save=False):
+    data = group_by_episode(data)
+    print(data['object_position'][0, :, 0])
+    print(data['object_position'][0, :, 1])
+    print(data['object_position'][0, :, 2])
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # line_list = []
+    # for line in data[0]:
+    #     r, theta = zip(*line)
+    #     line_list.append(([*theta], [*r]))
+    for i, line in enumerate(data['object_position'][:, 0, 0]):
+    #     color = []
+    #     for k in range(len(line[1])):
+    #         color.append('green')
+    #     Blues = plt.get_cmap('Blues')
+        ax.plot(data['object_position'][i, :, 0], data['object_position'][i, :, 2])
+    #max_value = max(map(lambda x: x[-1][0], data[0]))
+    #ax.set_rmax(max_value)
+    #ax.set_rticks(np.arange(max_value, step=max_value/5))  # less radial ticks
+    #ax.set_rlabel_position(-22.5)  # get radial labels away from plotted line
+    ax.grid(True)
+    ax.set_title("Pan/Tilt Error", va='bottom')
+    if save:
+        fig.savefig(plotpath + "/movement_pan_tilt_xy.png")
+    else:
+        plt.show()
+
+
+def circular_polar_movement_plot(data, plotpath, save=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='polar')
+    line_list = []
+    for line in data[0]:
+        r, theta = zip(*line)
+        line_list.append(([*theta], [*r]))
+    for i, line in enumerate(line_list):
+        color = []
+        for k in range(len(line[1])):
+            color.append('green')
+        Blues = plt.get_cmap('Blues')
+        ax.scatter(line[0], line[1], c=data[1][i])
+    max_value = max(map(lambda x: x[-1][0], data[0]))
+    ax.set_rmax(max_value)
+    ax.set_rticks(np.arange(max_value, step=max_value/5))  # less radial ticks
+    ax.set_rlabel_position(-22.5)  # get radial labels away from plotted line
+    ax.grid(True)
+    ax.set_title("Pan/Tilt Error", va='bottom')
+    if save:
+        fig.savefig(plotpath + "/movement_pan_tilt.png")
+    else:
+        plt.show()
+
+
+def circular_polar_movement_plot_2(data, plotpath, save=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='polar')
+
+    data = group_by_episode(data)
+    print(data['eyes_position'][:, :, 0])
+    data['eyes_position_polar'] = np.apply_along_axis(cart2pol, 2, data['eyes_position'])
+    data['eyes_position_polar_sample'] = data['eyes_position_polar'][np.random.choice(data['eyes_position_polar'].shape[0], 100, replace=False)]
+    print(data['eyes_position_polar_sample'].shape)
+    print(data['eyes_position_polar_sample'][:,:,0])
+    r_values = data['eyes_position_polar_sample'][:,:,0]
+    phi_values = data['eyes_position_polar_sample'][:,:,1]
+    for i, trajectory in enumerate(r_values):
+        ax.plot(phi_values[i], r_values[i])
+
+    max_value = 6# max(map(lambda x: x[-1][0], data[0]))
+    ax.set_rmax(max_value)
+    ax.set_rticks(np.arange(max_value, step=max_value/5))  # less radial ticks
+    ax.set_rlabel_position(-22.5)  # get radial labels away from plotted line
+    ax.grid(True)
+    ax.set_title("Pan/Tilt Error", va='bottom')
+    if save:
+        fig.savefig(plotpath + "/movement_pan_tilt.png")
+    else:
+        plt.show()

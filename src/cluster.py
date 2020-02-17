@@ -74,7 +74,7 @@ class ClusterQueue:
 
 
 # General parameters
-description = "Full Refactor Tilt Only"
+description = "Full Refactor Pan Tilt"
 
 # Define cluster specs here
 cluster_params = {

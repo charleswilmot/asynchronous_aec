@@ -5,6 +5,7 @@ import os
 import numpy as np
 import re
 from visualization.plot_log_data import *
+from algorithm.conf import Conf
 
 
 def get_data(path, flush_id=None):
@@ -99,14 +100,14 @@ if __name__ == "__main__":
         print("\n", path, "\n")
         ### CONSTANTS
         plotpath = path + "/../plots_{}/".format(args.name)
-        with open(path + "/../helper_classes/worker_conf.pkl", "rb") as f:
+        with open(path + "/../conf/worker_conf.pkl", "rb") as f:
             conf = pickle.load(f)
-            discount_factor = conf.discount_factor
+            #discount_factor = conf.discount_factor
         ratios = list(range(1, 4))
         n_actions_per_joint = 9
         action_set = define_actions_set(n_actions_per_joint)
 
-        data = get_data(path, -5)
+        data = get_data(path) #, -5)
         #print(data)
         if args.save:
             if os.path.exists(plotpath) and not args.overwrite:
@@ -147,8 +148,15 @@ if __name__ == "__main__":
         #     action_wrt_vergence_based_on_critic(data, 0.5, 5, i, save=args.save)
 
         # print("v shape")
-        speed_error_episode_end_wrt_episode(data, plotpath, pantilt='pan', save=args.save)
-        delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
+
+        #for joint in ['pan', 'tilt', 'pantilt']:
+        #    speed_error_episode_end_wrt_episode(data, plotpath, pantilt=joint, save=args.save)
+        #delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
+        #data = generate_sample_data()
+        #circular_plot(data, plotpath, save=
+        #circular_polar_movement_plot_2(data, plotpath, save=args.save)
+        circular_xy_movement_plot(data, plotpath, save=args.save)
+        #movement(data)
 
         #check_data(data, args.save)
 

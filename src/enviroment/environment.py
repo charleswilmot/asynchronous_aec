@@ -38,11 +38,12 @@ class RandomScreen(SquaredPlane):
 
     def episode_reset(self):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        #self.speed = np.random.uniform(rad(0.2), rad(0.5))
-        self.speed = 0.01
+        #self.speed = np.random.uniform(rad(1), rad(1.5))
+        self.speed = rad(0.7)
         #self.direction = 0
         #self.direction = np.random.choice([0, 0.5 * np.pi, np.pi, 1.5 * np.pi])
-        self.direction = np.random.choice([rad(90), rad(270)])
+        #self.direction = np.random.choice([rad(0), rad(180)])
+        self.direction = np.random.uniform(rad(0), rad(360))
         #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(0)
@@ -83,13 +84,14 @@ class RandomScreen(SquaredPlane):
 
 
 class Environment:
-    def __init__(self, headless=True):
+    def __init__(self, texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/",
+                 scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=True):
         self.pyrep = PyRep()
-        self.pyrep.launch("/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=headless)
+        self.pyrep.launch(scene, headless=headless)
         min_distance = 0.5
         max_distance = 5
         max_speed = 0.5
-        path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
+        path = texture
         textures_names = listdir(path)
         textures_list = [self.pyrep.create_texture(path + name)[1] for name in textures_names]
         self.screen = RandomScreen(min_distance, max_distance, max_speed, textures_list)

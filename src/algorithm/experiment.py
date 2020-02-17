@@ -121,7 +121,7 @@ class Experiment:
         self.videodir = self.experiment_dir + "/video"
         self.datadir = self.experiment_dir + "/data"
         self.testdatadir = self.experiment_dir + "/test_data"
-        self.confdir = self.experiment_dir + "/helper_classes"
+        self.confdir = self.experiment_dir + "/conf"
         if not os.path.exists(self.experiment_dir) or os.listdir(self.experiment_dir) == ['log']:
             os.makedirs(self.experiment_dir, exist_ok=True)
             os.makedirs(self.logdir, exist_ok=True)

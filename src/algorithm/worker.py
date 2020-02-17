@@ -548,7 +548,10 @@ class Worker:
         At the moment, pan and tilt are comprised only of zeros"""
         n = self.n_actions_per_joint // 2
         # tilt
-        # self.action_set_tilt = np.zeros(self.n_actions_per_joint)
+        # positive = [0.5, 0.9, 1.1, 1.3]
+        # negative = [-0.5, -0.9, -1.1, -1.2]
+        # self.action_set_tilt = np.concatenate([negative, [0], positive])
+        #self.action_set_tilt = np.zeros(self.n_actions_per_joint)
         half_pixel_in_angle = 90 / 240 / 2
         mini = half_pixel_in_angle
         maxi = half_pixel_in_angle * 2 ** (n - 1)
@@ -556,13 +559,15 @@ class Worker:
         negative = -positive[::-1]
         self.action_set_tilt = np.concatenate([negative, [0], positive])
         # pan
-        self.action_set_pan = np.zeros(self.n_actions_per_joint)
-        # half_pixel_in_angle = 90 / 320 / 2
-        # mini = half_pixel_in_angle
-        # maxi = half_pixel_in_angle * 2 ** (n - 1)
-        # positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        # negative = -positive[::-1]
-        # self.action_set_pan = np.concatenate([negative, [0], positive])
+        #self.action_set_pan = np.zeros(self.n_actions_per_joint)
+        half_pixel_in_angle = 90 / 320 / 2
+        mini = half_pixel_in_angle
+        maxi = half_pixel_in_angle * 2 ** (n - 1)
+        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
+        negative = -positive[::-1]
+        #positive = [0.5, 0.9, 1.1, 1.3]
+        #negative = [-0.5, -0.9, -1.1, -1.2]
+        self.action_set_pan = np.concatenate([negative, [0], positive])
         # vergence
         self.action_set_vergence = np.zeros(self.n_actions_per_joint)
 
