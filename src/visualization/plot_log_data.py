@@ -450,20 +450,13 @@ def vergence_wrt_object_distance(data, save=False):
 
 def speed_error(eyes_speed, object_speed, pantilt=''):
     if pantilt == 'pan':
-        return np.sqrt((eyes_speed[:, 0] - object_speed[:, 0]) ** 2)
+        return np.abs(eyes_speed[..., 0] - object_speed[..., 0])
     elif pantilt == 'tilt':
-        return np.sqrt((eyes_speed[:, 1] - object_speed[:, 1]) ** 2)
+        return np.abs(eyes_speed[..., 1] - object_speed[..., 1])
     else:
-        return np.sqrt(np.sum((eyes_speed-object_speed)**2, 1))
+        return np.sqrt(np.sum((eyes_speed - object_speed) ** 2, axis=-1))
 
 
-def speed_error_sub(eyes_speed, object_speed, pantilt=''):
-    if pantilt == 'pan':
-        return eyes_speed[:, 0] - object_speed[:, 0]
-    elif pantilt == 'tilt':
-        return eyes_speed[:, 1] - object_speed[:, 1]
-    else:
-        return np.sum(eyes_speed-object_speed, 1)
 
 
 def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
