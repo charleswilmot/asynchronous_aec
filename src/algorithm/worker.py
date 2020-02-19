@@ -632,6 +632,10 @@ class Worker:
                     left_image, right_image = self.environment.robot.get_vision()
                     object_distance = self.environment.screen.distance
                     vergence_error = self.environment.robot.get_vergence_error(object_distance)
+                    eyes_speed = self.environment.robot.speed
+                    screen_speed = self.environment.screen.tilt_pan_speed
+                    tilt_speed_error = eyes_speed[0] - screen_speed[0]
+                    pan_speed_error = eyes_speed[1] - screen_speed[1]
                     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
                     writer.append_data(frame)
                     if iteration == 0:
