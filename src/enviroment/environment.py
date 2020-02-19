@@ -54,7 +54,7 @@ class RandomScreen(SquaredPlane):
         if self.speed > 0:
             self.direction = np.arccos(pan_speed / self.speed)
         else:
-            self.direction = 0.0    
+            self.direction = 0.0
         if tilt_speed < 0:
             self.direction = -self.direction
         self.set_episode_iteration(0)
@@ -239,9 +239,9 @@ class StereoVisionRobot:
         return self.tilt_speed, self.pan_speed
 
     def set_action(self, action, joint_limit_type=None):
-        self.set_delta_tilt_speed(action[0], joint_limit_type)
-        self.set_delta_pan_speed(action[1], joint_limit_type)
-        self.set_delta_vergence_position(action[2], joint_limit_type)
+        self.set_delta_tilt_speed(float(action[0]), joint_limit_type)
+        self.set_delta_pan_speed(float(action[1]), joint_limit_type)
+        self.set_delta_vergence_position(float(action[2]), joint_limit_type)
 
     def set_position(self, position, joint_limit_type):
         self.set_tilt_position(position[0], joint_limit_type)
