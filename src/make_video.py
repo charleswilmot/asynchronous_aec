@@ -1,6 +1,7 @@
 import time
 from tempfile import TemporaryDirectory
-from asynchronous import Experiment, Conf
+from algorithm.experiment import Experiment
+from algorithm.conf import Conf
 import pickle
 
 
