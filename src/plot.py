@@ -149,13 +149,13 @@ if __name__ == "__main__":
 
         # print("v shape")
 
-        #for joint in ['pan', 'tilt', 'pantilt']:
-        #    speed_error_episode_end_wrt_episode(data, plotpath, pantilt=joint, save=args.save)
+        for joint in ['pan', 'tilt', 'pantilt']:
+            speed_error_episode_end_wrt_episode(data, plotpath, pantilt=joint, save=args.save)
         #delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
         #data = generate_sample_data()
         #circular_plot(data, plotpath, save=
         #circular_polar_movement_plot_2(data, plotpath, save=args.save)
-        circular_xy_movement_plot(data, plotpath, save=args.save)
+        #circular_xy_movement_plot(data, plotpath, save=args.save)
         #movement(data)
 
         #check_data(data, args.save)

@@ -42,8 +42,8 @@ class RandomScreen(SquaredPlane):
         self.speed = rad(0.7)
         #self.direction = 0
         #self.direction = np.random.choice([0, 0.5 * np.pi, np.pi, 1.5 * np.pi])
-        #self.direction = np.random.choice([rad(0), rad(180)])
-        self.direction = np.random.uniform(rad(0), rad(360))
+        self.direction = np.random.choice([rad(45), rad(195)])
+        #self.direction = np.random.uniform(rad(0), rad(360))
         #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(0)

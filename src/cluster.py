@@ -74,14 +74,14 @@ class ClusterQueue:
 
 
 # General parameters
-description = "Full Refactor Pan Tilt"
+description = "Pan Tilt Diagonal"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 40, #40
-    "mem": 120000, #90_000
+    "mincpus": 20, #40
+    "mem": 80000, #90_000
     "description": description,
 }
 
@@ -89,7 +89,7 @@ cluster_params = {
 algo_params = {
     "n_episodes": 200000, #200_000
     "flush_every": 10000,
-    "n_workers": 40, #40
+    "n_workers": 20, #40
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
