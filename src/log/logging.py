@@ -31,8 +31,8 @@ class DataLogger:
             "critic_values_pan": np.squeeze(np.array(ret["critic_values"]["pan"])),
             "critic_values_vergence": np.squeeze(np.array(ret["critic_values"]["vergence"])),
             "object_distance": np.squeeze(np.array(object_distance)),
-            "object_speed": np.square(np.array(object_speed)),
-            "object_position": np.square(np.array(object_position)),
+            "object_speed": np.squeeze(np.array(object_speed)),
+            "object_position": np.squeeze(np.array(object_position)),
             "eyes_position": np.squeeze(np.array(eyes_position)),
             "eyes_speed": np.squeeze(np.array(eyes_speed))
         }
