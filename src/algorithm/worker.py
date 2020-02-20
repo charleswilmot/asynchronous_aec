@@ -450,10 +450,13 @@ class Worker:
         The greedy boolean specifies wether the greedy or sampled policy should be used
         """
         fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
-        self.environment.episode_reset()
-        mean = 0
-        total_reward__partial = 0
+        self.environment.episode_reset(preinit=True)
         left_image, right_image = self.environment.robot.get_vision()
+        self.environment.step()  # moves the screen
+        feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image]}
+        _, reconstruction_error = self.sess.run(fetches, feed_dict)
+        total_reward__partial = float(reconstruction_error)
+        mean = 0
         for iteration in range(self.episode_length):
             left_image_before, right_image_before = left_image, right_image
             left_image, right_image = self.environment.robot.get_vision()
@@ -492,7 +495,13 @@ class Worker:
             "scale_values": self.scale_values,
             "critic_values": self.critic_values
         }
-        self.environment.episode_reset()
+        self.environment.episode_reset(preinit=True)
+        left_image, right_image = self.environment.robot.get_vision()
+        self.environment.step()  # moves the screen
+        feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image]}
+        ret = self.sess.run(fetches, feed_dict)
+        scale_reward__partial = np.array([ret["scale_reward__partial"][r][0] for r in self.ratios])
+        total_reward__partial = ret["total_reward__partial"][0]
         episode_number, epsilon = self.sess.run([self.episode_count_inc, self.epsilon])
         print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
         scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
@@ -619,14 +628,19 @@ class Worker:
     def make_video(self, path, n_episodes, training=False):
         """Generates a video, to be stored under path, concisting of n_episodes
         """
-        fetches = self.greedy_actions_indices if not training else self.sampled_actions_indices
+        actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
+        fetches = [actions_indices, self.rewards__partial]
         rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
             for episode_number in range(n_episodes):
                 print("{} episode {}/{}".format(self.name, episode_number + 1, n_episodes))
-                self.environment.episode_reset()
+                self.environment.episode_reset(preinit=True)
                 left_image, right_image = self.environment.robot.get_vision()
+                self.environment.step()  # moves the screen
+                feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image]}
+                action, reconstruction_error = self.sess.run(fetches, feed_dict)
+                reconstruction_error_after = float(reconstruction_error)
                 for iteration in range(self.episode_length):
                     left_image_before, right_image_before = left_image, right_image
                     left_image, right_image = self.environment.robot.get_vision()

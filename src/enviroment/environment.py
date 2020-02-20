@@ -36,7 +36,7 @@ class RandomScreen(SquaredPlane):
         else:
             super().set_texture(self.textures_list[index])
 
-    def episode_reset(self):
+    def episode_reset(self, preinit=False):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
         #self.speed = np.random.uniform(rad(1), rad(1.5))
         self.speed = rad(0.7)
@@ -46,7 +46,7 @@ class RandomScreen(SquaredPlane):
         #self.direction = np.random.uniform(rad(0), rad(360))
         #self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
-        self.set_episode_iteration(0)
+        self.set_episode_iteration(-1 if preinit else 0)
 
     def set_trajectory(self, distance, tilt_speed, pan_speed):
         self.distance = distance
@@ -105,9 +105,9 @@ class Environment:
         # self.set_position
         self.pyrep.step()
 
-    def episode_reset(self):
+    def episode_reset(self, preinit=False):
         # reset screen
-        self.screen.episode_reset()
+        self.screen.episode_reset(preinit=preinit)
         # reset robot
         self.robot.episode_reset()
         self.robot.set_vergence_position(to_angle(self.screen.distance))
@@ -136,7 +136,6 @@ class StereoVisionRobot:
         self.episode_reset()
 
     def episode_reset(self):
-        self._episode_iteration = 0
         ### reset joints position / speeds
         self._tilt_speed = 0
         self._pan_speed = 0
