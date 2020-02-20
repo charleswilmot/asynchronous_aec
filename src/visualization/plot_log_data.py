@@ -450,9 +450,9 @@ def vergence_wrt_object_distance(data, save=False):
 
 def speed_error(eyes_speed, object_speed, pantilt=''):
     if pantilt == 'pan':
-        return np.abs(eyes_speed[..., 0] - object_speed[..., 0])
-    elif pantilt == 'tilt':
         return np.abs(eyes_speed[..., 1] - object_speed[..., 1])
+    elif pantilt == 'tilt':
+        return np.abs(eyes_speed[..., 0] - object_speed[..., 0])
     else:
         return np.sqrt(np.sum((eyes_speed - object_speed) ** 2, axis=-1))
 
