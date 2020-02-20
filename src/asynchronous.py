@@ -159,9 +159,9 @@ if __name__ == "__main__":
         for i in range(args.n_episodes // args.flush_every):
             if i in test_at:
                 exp.save_model()
-                exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+                # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
             exp.train(args.flush_every)
             exp.flush_data()
         exp.save_model()
-        exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+        # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
         exp.make_video("final", 100)
