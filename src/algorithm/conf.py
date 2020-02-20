@@ -1,7 +1,7 @@
 class Conf:
     """Meant to contain all parameters related to the model.
     todo: add the ratios parameter, that controls which ratios are used
-    todo: pass this helper_classes object directly to the constructor of the Worker object
+    todo: pass this conf object directly to the constructor of the Worker object
     todo: buffer size should not be fixed (=20) but should be defined from the command line
     """
     def __init__(self, args):

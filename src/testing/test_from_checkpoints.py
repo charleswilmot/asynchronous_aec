@@ -29,7 +29,7 @@ if __name__ == "__main__":
     n_parameter_servers = 1
     n_workers = 4
 
-    with open(experiment_dir + "/../../helper_classes/worker_conf.pkl", "rb") as f:
+    with open(experiment_dir + "/../../conf/worker_conf.pkl", "rb") as f:
         worker_conf = pickle.load(f)
 
     with TemporaryDirectory() as d:

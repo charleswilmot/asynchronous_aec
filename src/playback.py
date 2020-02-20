@@ -24,7 +24,7 @@ if __name__ == "__main__":
     n_workers = 1
     # experiment_dir = "../experiments/2019_06_12-12:20:04_mlr1.00e-04_clr1.00e-04_alr1.00e-05_entropy2.00e-01__tune_temperature_1.0/checkpoints/01000000/"
 
-    with open(experiment_dir + "/../../helper_classes/worker_conf.pkl", "rb") as f:
+    with open(experiment_dir + "/../../conf/worker_conf.pkl", "rb") as f:
         worker_conf = pickle.load(f)
 
     with TemporaryDirectory() as d:
