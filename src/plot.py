@@ -107,7 +107,8 @@ if __name__ == "__main__":
         n_actions_per_joint = 9
         action_set = define_actions_set(n_actions_per_joint)
 
-        data = get_data(path) #, -5)
+        data = get_data(path)
+        # data = get_data(path, -5)
         #print(data)
         if args.save:
             if os.path.exists(plotpath) and not args.overwrite:
@@ -149,9 +150,14 @@ if __name__ == "__main__":
 
         # print("v shape")
 
-        for joint in ['pan', 'tilt', 'pantilt']:
-            speed_error_episode_end_wrt_episode(data, plotpath, pantilt=joint, save=args.save)
-        #delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
+        for pantilt in ['pan', 'tilt', 'pantilt']:
+            mean_speed_error_episode_end_wrt_episode(data, plotpath, pantilt=pantilt, save=args.save)
+            speed_error_episode_end_wrt_episode(data, plotpath, pantilt=pantilt, save=args.save)
+        delta_reward_wrt_delta_speed(data, plotpath, save=args.save)
+        for scale in [1, 2, 3]:
+            delta_reward_wrt_delta_speed_one_scale(data, plotpath, scale, save=args.save)
+
+
         #data = generate_sample_data()
         #circular_plot(data, plotpath, save=
         #circular_polar_movement_plot_2(data, plotpath, save=args.save)

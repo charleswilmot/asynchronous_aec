@@ -468,10 +468,11 @@ def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
     data = {k: v[:, -1] for k, v in data.items()}
     episode_numbers = data["episode_number"]
     speed_errors = speed_error(data["eyes_speed"], data["object_speed"], pantilt)
-    ax.plot(episode_numbers, speed_errors, ".", alpha=0.05)
+    ax.plot(episode_numbers, speed_errors, ".", alpha=0.15)
     ax.set_xlabel("episode")
     ax.set_ylabel("speed error in degrees")
     ax.set_title("speed error wrt time")
+    ax.set_ylim([-0.1, 2])
     if save:
         fig.savefig(plotpath + "/speed_error_wrt_time_" + pantilt + ".png")
     else:
@@ -479,30 +480,88 @@ def speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
     plt.close(fig)
 
 
+def mean_speed_error_episode_end_wrt_episode(data, plotpath, pantilt='', save=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    # episode_length = max([d["iteration"] for d in data])
+    # data = [d for d in data if d["iteration"] == episode_length]
+    data = group_by_episode(data)
+    data = {k: v[:, -1] for k, v in data.items()}
+    episode_numbers = data["episode_number"]
+    speed_errors = speed_error(data["eyes_speed"], data["object_speed"], pantilt=pantilt)
+    args = np.argsort(episode_numbers)
+    episode_numbers = episode_numbers[args]
+    speed_errors = speed_errors[args]
+    win = 2000
+    mean_speed_errors = [np.mean(speed_errors[np.where(np.logical_and(episode_numbers < x + win, episode_numbers > x - win))]) for x in episode_numbers]
+    smooth = savgol_filter(mean_speed_errors, 21, 3)
+    ax.plot(episode_numbers, smooth, "-", lw=2)
+    ax.axhline(90 / 320, color="k", linestyle="--")
+    ax.set_xlabel("episode")
+    ax.set_ylabel(pantilt + " speed error in degrees")
+    ax.set_ylim([0.0, 4])
+    sufix = "({})".format(pantilt) if pantilt else ""
+    ax.set_title("Speed error wrt train time " + sufix)
+    if save:
+        fig.savefig(plotpath + "/speed_error_wrt_train_time_{}.png".format(pantilt))
+    else:
+        plt.show()
+    plt.close(fig)
+
+
+
 def delta_reward_wrt_delta_speed(data, plotpath, save=False):
-    gridsize = 100
+    gridsize = 60
     data = group_by_episode(data)
     n_trajectories = len(data["iteration"])
     fig = plt.figure()
-    speed_errors = speed_error_sub(data["eyes_speed"], data["object_speed"], '')
-    print(speed_errors.shape)
-    print(n_trajectories)
+    speed_errors = speed_error(data["eyes_speed"], data["object_speed"], '')
     speed_error_start = []
     speed_error_end = []
-    delta_reward = []
+    delta_reconstruction_error = []
+    reconstruction_errors = data["total_reconstruction_error"]
     rewards = data["total_reward"]
     for i in range(n_trajectories):
-        for v0, r0 in zip(speed_errors[i], rewards[i]):
-            for v1, r1 in zip(speed_errors[i], rewards[i]):
-                speed_error_start.append(v0)
-                speed_error_end.append(v1)
-                delta_reward.append(r1 - r0)
+        for v0, v1, r in zip(speed_errors[i, :-1], speed_errors[i, 1:], rewards[i, 1:]):
+            speed_error_start.append(v0)
+            speed_error_end.append(v1)
+            delta_reconstruction_error.append(r)
     ax = fig.add_subplot(111)#, facecolor='grey')
-    hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reward, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10, vmin=-1, vmax=1)
+    hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reconstruction_error, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=5)
+    # hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reconstruction_error, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10, vmin=-1, vmax=1)
     cb = fig.colorbar(hexbin, ax=ax)
-    cb.set_label("Delta reward")
+    cb.set_label("Delta reconstruction error")
     if save:
         fig.savefig(plotpath + "/delta_reward_wrt_delta_speed.png")
+    else:
+        plt.show()
+        plt.close(fig)
+
+
+
+def delta_reward_wrt_delta_speed_one_scale(data, plotpath, scale, save=False):
+    gridsize = 60
+    data = group_by_episode(data)
+    n_trajectories = len(data["iteration"])
+    fig = plt.figure()
+    speed_errors = speed_error(data["eyes_speed"], data["object_speed"], '')
+    speed_error_start = []
+    speed_error_end = []
+    delta_reconstruction_error = []
+    # reconstruction_errors = data["scale_reconstruction_error"][:, :, scale - 1]
+    rewards = data["scale_rewards"][:, :, scale - 1]
+    for i in range(n_trajectories):
+        for v0, v1, r in zip(speed_errors[i, :-1], speed_errors[i, 1:], rewards[i, 1:]):
+            speed_error_start.append(v0)
+            speed_error_end.append(v1)
+            delta_reconstruction_error.append(r)
+    ax = fig.add_subplot(111)#, facecolor='grey')
+    hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reconstruction_error, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=5)
+    # hexbin = ax.hexbin(speed_error_start, speed_error_end, delta_reconstruction_error, cmap=seismic, norm=MidPointNorm(), gridsize=gridsize, mincnt=10, vmin=-1, vmax=1)
+    cb = fig.colorbar(hexbin, ax=ax)
+    cb.set_label("Delta reconstruction error")
+    if save:
+        fig.savefig(plotpath + "/delta_reward_wrt_delta_speed_scale_{}.png".format(scale))
     else:
         plt.show()
         plt.close(fig)
