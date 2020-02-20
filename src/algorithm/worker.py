@@ -504,12 +504,6 @@ class Worker:
         total_reward__partial = ret["total_reward__partial"][0]
         episode_number, epsilon = self.sess.run([self.episode_count_inc, self.epsilon])
         print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
-        scale_reward__partial = np.zeros(shape=(len(self.ratios),), dtype=np.float32)
-        total_reward__partial = np.zeros(shape=(), dtype=np.float32)
-        self.environment.screen.set_episode_iteration(-2)
-        self.environment.step()
-        left_image, right_image = self.environment.robot.get_vision()
-        self.environment.step()
         for iteration in range(self.episode_length):
             left_image_before, right_image_before = left_image, right_image
             left_image, right_image = self.environment.robot.get_vision()
