@@ -644,14 +644,16 @@ class Worker:
                     screen_speed = self.environment.screen.tilt_pan_speed
                     tilt_speed_error = eyes_speed[0] - screen_speed[0]
                     pan_speed_error = eyes_speed[1] - screen_speed[1]
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
+                    feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
+                    reconstruction_error_before = reconstruction_error_after
+                    action, reconstruction_error = self.sess.run(fetches, feed_dict)
+                    reconstruction_error_after = float(reconstruction_error)
+                    self.environment.robot.set_action(self.actions_indices_to_values(action))
+                    self.environment.step()
+                    print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}    reward: {: .4f}".format(vergence_error, tilt_speed_error, pan_speed_error, reconstruction_error_before - reconstruction_error_after))
+                    frame = make_frame(left_image, right_image, object_distance, (reconstruction_error_before - reconstruction_error_after), episode_number + 1, n_episodes, rectangles)
                     writer.append_data(frame)
                     if iteration == 0:
                         for i in range(24):
                             writer.append_data(frame)
-                    feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
-                    ret = self.sess.run(fetches, feed_dict)
-                    self.environment.robot.set_action(self.actions_indices_to_values(ret))
-                    self.environment.step()
-                    print("vergence error: {:.4f}".format(vergence_error))
         self.pipe.send("{} going IDLE".format(self.name))
