@@ -624,7 +624,7 @@ class Worker:
         """
         actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
         fetches = [actions_indices, self.rewards__partial]
-        rectangles = [(160 - 16 * r, 120 - 16 * r, 160 + 16 * r, 120 + 16 * r) for r in self.ratios]
+        rectangles = [(160 - 8 * r, 120 - 8 * r, 160 + 8 * r, 120 + 8 * r) for r in self.ratios]
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
             for episode_number in range(n_episodes):
