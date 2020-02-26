@@ -1,4 +1,4 @@
-from enviroment.environment import *
+from environment.environment import *
 
 if __name__ == "__main__":
     import time
