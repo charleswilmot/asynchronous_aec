@@ -2,6 +2,15 @@ import numpy as np
 import tensorflow as tf
 
 
+def to_return(rewards, start, discount_factor):
+    ret = np.zeros_like(rewards)
+    prev = start
+    for i, r in reversed(list(enumerate(rewards))):
+        prev = prev * discount_factor + r
+        ret[i] = prev
+    return ret
+
+
 def get_return_func(discount_factor, axis=-1):
     def returns(rewards):
         ret = np.zeros_like(rewards)
