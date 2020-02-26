@@ -77,7 +77,9 @@ class Worker:
         self.cluster = cluster
         self._n_workers = self.cluster.num_tasks("worker") - 1
         self.server = tf.train.Server(cluster, "worker", task_index)
-        self.name = "/job:worker/task:{}".format(task_index)
+        task_index_str = "{}".format(task_index)
+        task_index_str = task_index_str + " " * (3 - len(task_index_str))
+        self.name = "/job:worker/task:{}".format(task_index_str)
         self.device = tf.train.replica_device_setter(worker_device=self.name, cluster=cluster)
         self.episode_count = tf.Variable(0)
         self.episode_count_inc = self.episode_count.assign_add(1)
