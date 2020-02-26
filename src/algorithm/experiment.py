@@ -168,6 +168,8 @@ class Experiment:
             args=(self.training_data_queue, self.datadir + "/training.data"),
             daemon=True
         )
+        self.testing_data_queue = multiprocessing.Queue(maxsize=10000)
+        self.test_cases_queue = multiprocessing.Queue(maxsize=10000)
         ### start all processes ###
         all_processes = self.parameter_servers_processes + self.workers_processes + [self.summary_collector_process, self.training_data_collector_process]
         for p in all_processes:
@@ -219,6 +221,8 @@ class Experiment:
             self.there_pipes[task_index],
             self.summary_queue,
             self.training_data_queue,
+            self.testing_data_queue,
+            self.test_cases_queue,
             self.logdir,
             self.ports[task_index],
             self.worker_conf.mlr,
@@ -276,14 +280,21 @@ class Experiment:
         # generate list_of_test_cases
         with open(test_conf_path, "rb") as f:
             list_of_test_cases = pickle.load(f)["test_cases"]
-        # generate list_of_chunks_of_test_cases
-        list_of_chunks_of_test_cases = chunks(list_of_test_cases, chunks_size)
-        for i, (pipe, chunk_of_test_cases) in enumerate(zip(cycle(self.here_pipes), list_of_chunks_of_test_cases)):
-            pipe.send(("test_chunks", ProperDisplay(chunk_of_test_cases, i + 1, len(list_of_chunks_of_test_cases))))
-        test_data_summary = []
-        for p in repeatlist(self.here_pipes, len(list_of_chunks_of_test_cases)):
-            test_data = p.recv()
-            test_data_summary += test_data
+        n_test_cases = len(list_of_test_cases)
+        for test_case in list_of_test_cases:
+            self.test_cases_queue.put(test_case)
+        for pipe in self.here_pipes:
+            pipe.send(("test",))
+        n_received = 0
+        res = []
+        while n_received < n_test_cases:
+            test_case, test_data = self.testing_data_queue.get()
+            n_received += 1
+            res.append((test_case, test_data))
+            if n_received % 100 == 0:
+                print("EXPERIMENT: tested {: 5d} out of {: 5d} cases".format(n_received, n_test_cases))
+        for pipe in self.here_pipes:
+            print(pipe.recv())  # make sure all workers are done
         # get the current iteration...
         current_episode_count = self.get_current_episode_count()
         # store the data
@@ -292,7 +303,7 @@ class Experiment:
         test_conf_name = os.path.splitext(test_conf_basename)[0]
         path = path + "/{}_{}.pkl".format(current_episode_count, test_conf_name)
         with open(path, "wb")as f:
-            pickle.dump(test_data_summary, f)
+            pickle.dump(res, f)
 
     def playback(self, n_episodes, greedy=False):
         for p in self.here_pipes:

@@ -48,8 +48,10 @@ class RandomScreen(SquaredPlane):
         self.set_texture()
         self.set_episode_iteration(-1 if preinit else 0)
 
-    def set_trajectory(self, distance, tilt_speed, pan_speed):
+    def set_trajectory(self, distance, tilt_speed_deg, pan_speed_deg, preinit=False):
         self.distance = distance
+        tilt_speed = rad(tilt_speed_deg)
+        pan_speed = rad(pan_speed_deg)
         self.speed = np.sqrt(tilt_speed ** 2 + pan_speed ** 2)
         if self.speed > 0:
             self.direction = np.arccos(pan_speed / self.speed)
@@ -57,7 +59,7 @@ class RandomScreen(SquaredPlane):
             self.direction = 0.0
         if tilt_speed < 0:
             self.direction = -self.direction
-        self.set_episode_iteration(0)
+        self.set_episode_iteration(-1 if preinit else 0)
 
     def set_episode_iteration(self, it):
         self._episode_iteration = it
@@ -137,14 +139,17 @@ class StereoVisionRobot:
 
     def episode_reset(self):
         ### reset joints position / speeds
-        self._tilt_speed = 0
-        self._pan_speed = 0
+        self.reset_speed()
         self.tilt_right.set_joint_position(0)
         self.tilt_left.set_joint_position(0)
         fixation_distance = np.random.uniform(self.min_distance, self.max_distance)
         random_vergence = rad(to_angle(fixation_distance))
         self.pan_left.set_joint_position(random_vergence / 2)
         self.pan_right.set_joint_position(-random_vergence / 2)
+
+    def reset_speed(self):
+        self._tilt_speed = 0
+        self._pan_speed = 0
 
     def _check_pan_limit(self, left, right, joint_limit_type=None):
         joint_limit_type = self.default_joint_limit_type if joint_limit_type is None else joint_limit_type

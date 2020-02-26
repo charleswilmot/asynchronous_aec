@@ -91,6 +91,8 @@ class Worker:
         self.pipe = pipe
         self.summary_queue = summary_queue
         self.training_data_queue = training_data_queue
+        self.testing_data_queue = testing_data_queue
+        self.test_cases_queue = test_cases_queue
         self.logdir = logdir
         self.n_actions_per_joint = 9
         self.reward_scaling_factor = 100
@@ -499,34 +501,43 @@ class Worker:
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
 
-    def test_chunks(self, proper_display_of_chunk_of_test_cases):
-        """Performs tests in the enviroment, using the greedy policy.
-        proper_display_of_chunk_of_test_cases is a wrapper around a chunk_of_test_cases (for pretty printing)
-        chunk_of_test_cases contains all informations about the tests that must be performed in the enviroment
-        Each worker gets a few test cases to process, enabling parallel computations
+    def test(self):
+        """Performs tests in the environment, using the greedy policy.
         The resulting measures are sent back to the Experiment class (the server)
         """
-        chunk_of_test_cases = proper_display_of_chunk_of_test_cases.data
-        ret = []
+        # import imageio  # temporary
         fetches = {
-            "total_reconstruction_error": self.autoencoder_loss,
+            "total_reconstruction_error": self.total_recerrs,
             "critic_value": self.critic_values,
             "action_index": self.greedy_actions_indices
         }
-        for test_case in chunk_of_test_cases:
+        while not self.test_cases_queue.empty():
+            try:
+                test_case = self.test_cases_queue.get(timeout=1)
+            except queue.Empty:
+                print("{} found an empty queue".format(self.name))
+                break
+            test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
             vergence_init = to_angle(test_case["object_distance"]) - test_case["vergence_error"]
+            ### initialize environment, step simulation, take pictures, move screen
+            self.environment.robot.reset_speed()
             self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
             self.environment.screen.set_texture(test_case["stimulus"])
             self.environment.screen.set_trajectory(
                 test_case["object_distance"],
                 test_case["speed_error"][0],
-                test_case["speed_error"][1])
-            test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
-            left_image, right_image = self.environment.robot.get_vision()
+                test_case["speed_error"][1],
+                preinit=True)
+            self.environment.step()
+            left_image_before, right_image_before = self.environment.robot.get_vision()
+            ###
             for i in range(test_case["n_iterations"]):
-                left_image_before, right_image_before = left_image, right_image
+                self.environment.step()
                 left_image, right_image = self.environment.robot.get_vision()
                 feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
+                # filename = '/tmp/test_inputs/{:03d}_{:03d}_{}.png'.format(test_case["stimulus"], int(test_case["speed_error"][1] * 2 * 320 / 90), self.task_index)  # temporary
+                # print("saving {}".format(filename))  # temporary
+                # imageio.imwrite(filename, (left_image_before * 255).astype(np.uint8))  # temporary
                 data = self.sess.run(fetches, feed_dict=feed_dict)
                 action_value = self.actions_indices_to_values(data["action_index"])
                 test_data[i]["action_index"] = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
@@ -540,10 +551,8 @@ class Worker:
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
                 test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
                 self.environment.robot.set_action(action_value, joint_limit_type="none")
-                self.environment.step()
-            ret.append((test_case, test_data))
-        self.pipe.send(ret)
-        return ret
+            self.testing_data_queue.put((test_case, test_data))
+        self.pipe.send("{} no more test cases, going IDLE".format(self.name))
 
     def playback_one_episode(self, greedy=False):
         """Performs one episode of fake training (for visualizing a trained agent in the enviroment, see playback.py)

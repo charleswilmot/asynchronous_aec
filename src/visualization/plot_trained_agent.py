@@ -103,8 +103,8 @@ def plot_vergence_path(fig, lists_of_param_anchors, data):
 
 #TODO: Vlean this method
 def plot_stimulus_path(fig, lists_of_param_anchors, data):
-    path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/"
-    #path = "../local_copies_of_aecgroup/mcgillManMade_600x600_bmp_selection/"
+    path = "/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_png_selection/"
+    #path = "../local_copies_of_aecgroup/mcgillManMade_600x600_png_selection/"
     textures_names = os.listdir(path)
     textures_list = [np.array(Image.open(path + name), dtype=np.uint8) for name in textures_names]
     lim_stimulus = min(10, len(lists_of_param_anchors["stimulus"]))
@@ -124,6 +124,34 @@ def plot_stimulus_path(fig, lists_of_param_anchors, data):
         ax.set_title("Stimulus  {:.1f}".format(elem[0][0]["stimulus"]))
         ax2 = get_new_ax(fig, n_subplots, (subplot_index * 2) + 1)
         ax2.imshow(textures_list[elem[0][0]["stimulus"]])
+
+
+def plot_recerr_wrt_speed_error(fig, lists_of_param_anchors, data):
+    data = filter_data(data, **lists_of_param_anchors)
+    test_cases = np.array([a for a, b in data])
+    # for x in test_cases:
+    #     print(x)
+    data = np.array([b for a, b in data])
+    ax = fig.add_subplot(111)
+    mean = None
+    n = 0
+    for stimulus in lists_of_param_anchors["stimulus"]:
+        where = np.where(test_cases["stimulus"] == stimulus)
+        subdata = data[where]
+        speed_error = subdata["speed_error"][:, 0, 1]
+        recerr = subdata["total_reconstruction_error"][:, 0]
+        args = np.argsort(speed_error)
+        ax.plot(speed_error[args], recerr[args], 'b-', linewidth=1)
+        if mean is None:
+            mean = recerr[args]
+        else:
+            mean += recerr[args]
+        n += 1
+        # print(speed_error[args], recerr[args], "\n\n\n\nhwdhcwbadch\n\n\n")
+    ax.plot(speed_error[args], mean / n, 'r-', linewidth=3)
+    ax.axvline(90 / 320, color="k", linestyle="--")
+    ax.axvline(-90 / 320, color="k", linestyle="--")
+
 
 
 if __name__ == "__main__":
@@ -146,7 +174,9 @@ if __name__ == "__main__":
     fig = plt.figure()
 
     with open(args.test_conf_path, "rb") as f:
-        lists_of_param_anchors = pickle.load(f)["test_descriptions"]["vergence_trajectory"]
+        lists_of_param_anchors = pickle.load(f)["test_descriptions"]
+        # lists_of_param_anchors = pickle.load(f)["test_descriptions"]["wrt_tilt_speed_error"]
+        # lists_of_param_anchors = pickle.load(f)["test_descriptions"]["vergence_trajectory"]
         #print(lists_of_param_anchors)
 
     with open(args.path, "rb") as f:
@@ -155,5 +185,11 @@ if __name__ == "__main__":
 
     #plot_stimulus_path(fig, lists_of_param_anchors, data)
     #plot_tilt_path_all(fig, lists_of_param_anchors, data)
-    plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
+    # plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
+    # plt.show()
+
+
+    pan_anchors = lists_of_param_anchors["wrt_pan_speed_error"]
+    tilt_anchors = lists_of_param_anchors["wrt_tilt_speed_error"]
+    plot_recerr_wrt_speed_error(fig, pan_anchors, data)
     plt.show()
