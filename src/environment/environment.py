@@ -101,11 +101,10 @@ class Environment:
         self.pyrep.start()
 
     def step(self):
+        # step simulation
+        self.pyrep.step()
         # move screen
         self.screen.increment_iteration()
-        # step simulation
-        # self.set_position
-        self.pyrep.step()
 
     def episode_reset(self, preinit=False):
         # reset screen
