@@ -73,6 +73,55 @@ def get_n_ports(n, start_port=19000):
     return ports
 
 
+def collect_summaries(queue, path):
+    total_time_getting = 0
+    total_time_writing = 0
+    last_time_printing = time.time()
+    with tf.summary.FileWriter(path) as writer:
+        while True:
+            t0 = time.time()
+            summary, global_step = queue.get()
+            t1 = time.time()
+            writer.add_summary(summary, global_step=global_step)
+            t2 = time.time()
+            total_time_getting += t1 - t0
+            total_time_writing += t2 - t1
+            if t2 - last_time_printing > 120:
+                total = total_time_getting + total_time_writing
+                print("SUMMARY COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
+                    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                )
+                last_time_printing = t2
+
+
+def collect_training_data(queue, path):
+    total_time_getting = 0
+    total_time_writing = 0
+    last_time_printing = time.time()
+    with open(path, "wb") as f:
+        data = queue.get()
+        serialized_dtype = pickle.dumps(data.dtype)
+        f.write(np.int32(len(serialized_dtype)))  # 4 bytes for serialized_dtype size
+        f.write(serialized_dtype)                 # n bytes for serialized_dtype
+        episode_length = data.shape[0]
+        f.write(np.int32(episode_length))         # 4 bytes for episode_length
+        f.write(data.tobytes())
+        while True:
+            t0 = time.time()
+            data = queue.get()
+            t1 = time.time()
+            f.write(data.tobytes())
+            t2 = time.time()
+            total_time_getting += t1 - t0
+            total_time_writing += t2 - t1
+            if t2 - last_time_printing > 120:
+                total = total_time_getting + total_time_writing
+                print("TRAINING DATA COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
+                    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                )
+                last_time_printing = t2
+
+
 class Experiment:
     """An experiment object allows to control clients / workers that train a model
     It starts one process per worker, and one process per parameter server
@@ -107,8 +156,20 @@ class Experiment:
             args=(i,),
             daemon=True)
             for i in range(self.n_workers)]
+        self.summary_queue = multiprocessing.Queue(maxsize=1000)
+        self.summary_collector_process = multiprocessing.Process(
+            target=collect_summaries,
+            args=(self.summary_queue, self.logdir),
+            daemon=True
+        )
+        self.training_data_queue = multiprocessing.Queue(maxsize=1000)
+        self.training_data_collector_process = multiprocessing.Process(
+            target=collect_training_data,
+            args=(self.training_data_queue, self.datadir + "/training.data"),
+            daemon=True
+        )
         ### start all processes ###
-        all_processes = self.parameter_servers_processes + self.workers_processes
+        all_processes = self.parameter_servers_processes + self.workers_processes + [self.summary_collector_process, self.training_data_collector_process]
         for p in all_processes:
             p.start()
         print("EXPERIMENT: all processes started. Waiting for answer...")
@@ -156,6 +217,8 @@ class Experiment:
             self.cluster,
             task_index,
             self.there_pipes[task_index],
+            self.summary_queue,
+            self.training_data_queue,
             self.logdir,
             self.ports[task_index],
             self.worker_conf.mlr,
@@ -234,12 +297,6 @@ class Experiment:
     def playback(self, n_episodes, greedy=False):
         for p in self.here_pipes:
             p.send(("playback", n_episodes, greedy))
-        for p in self.here_pipes:
-            p.recv()
-
-    def flush_data(self):
-        for p in self.here_pipes:
-            p.send(("flush_data", self.datadir))
         for p in self.here_pipes:
             p.recv()
 

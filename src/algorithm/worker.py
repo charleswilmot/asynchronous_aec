@@ -10,6 +10,8 @@ import os
 from helper.utils import to_angle
 from imageio import get_writer
 from PIL import ImageDraw, Image #, ImageFont
+import queue
+
 
 dttest_data = np.dtype([
     ("action_index", (np.int32, 3)),
@@ -65,7 +67,8 @@ class Worker:
     It first defines a model according to the model's parameters, then goes to the idle mode, and waits for instructions
     todo: see the Conf object: pass a Conf instance to the Worker constructor.
     """
-    def __init__(self, cluster, task_index, pipe, logdir, simulator_port,
+    def __init__(self, cluster, task_index, pipe, summary_queue, training_data_queue, testing_data_queue, test_cases_queue,
+                 logdir, simulator_port,
                  model_lr, critic_lr, discount_factor,
                  epsilon_init, epsilon_decay,
                  episode_length, model_buffer_size, update_factor,
@@ -87,6 +90,8 @@ class Worker:
         self.critic_lr = critic_lr
         self.buffer = Buffer(size=model_buffer_size)
         self.pipe = pipe
+        self.summary_queue = summary_queue
+        self.training_data_queue = training_data_queue
         self.logdir = logdir
         self.n_actions_per_joint = 9
         # todo: see Conf object: put ratios in the Conf object
@@ -96,10 +101,6 @@ class Worker:
         self.define_actions_sets()
 
         # Manage Data Logging
-        self.data_logger = DataLogger()
-        self._update_number = 0
-        graph = tf.get_default_graph() if task_index == 0 else None
-        self.summary_writer = tf.summary.FileWriter(self.logdir + "/worker{}".format(task_index), graph=graph)
         self.saver = tf.train.Saver()
         self.sess = tf.Session(target=self.server.target)
         # todo: variable initialization can be done in the experiment constructor, would be more elegent
@@ -110,6 +111,19 @@ class Worker:
         print("{} starting V-Rep ...".format(self.name))
         self.environment = Environment(headless=task_index != 0 or not worker0_display)
         print("{} starting V-Rep ... done.".format(self.name))
+
+    def add_summary(self, summary, global_step):
+        try:
+            self.summary_queue.put((summary, global_step), block=False)
+        except queue.Full:
+            print("{} could not register it's summary. (Queue is full)")
+
+    def register_training_data(self):
+        try:
+            # don't register the last "sacrificial" iteration
+            self.training_data_queue.put(np.copy(self._training_data[:-1]), block=False)
+        except queue.Full:
+            print("{} could not register training data. (Queue is full)")
 
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts a central region of the camera images
@@ -537,14 +551,6 @@ class Worker:
         self.buffer.incorporate((states, actions))
         return episode_number
 
-    def flush_data(self, path):
-        """Reformats the training data buffer and dumps it onto the hard drive
-        This function must be called regularly.
-        The frequency at which it is called can be specified in the command line with the option --flush-every
-        See the help guide about data formats
-        """
-        self.data_logger.flush_data(self.task_index, path)
-        self.pipe.send("{} flushed data on the hard drive".format(self.name))
 
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets

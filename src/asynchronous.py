@@ -68,13 +68,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '-fe', '--flush-every',
-        type=int,
-        help="Flush every N simulated episode.",
-        default=5000
-    )
-
-    parser.add_argument(
         '-ne', '--n-episodes',
         type=int,
         help="Number of episodes to be simulated.",
@@ -149,19 +142,21 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
-    test_at = np.array([5000, 10000, 20000, 30000, 50000, 75000, 100000, 150000]) // args.flush_every
+    test_at = [5000, 10000, 20000, 30000, 50000, 75000, 100000, 150000]
+    test_at = [x for x in test_at if x < args.n_episodes] + [np.inf]
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
             exp.restore_model(args.restore_from)
         if args.tensorboard:
             exp.start_tensorboard()
-        for i in range(args.n_episodes // args.flush_every):
-            if i in test_at:
-                exp.save_model()
-                # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
-            exp.train(args.flush_every)
-            exp.flush_data()
-        exp.save_model()
-        # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
+        last_test = 0
+        for test in test_at:
+            if test < args.n_episodes:
+                exp.train(test - last_test)
+                last_test = test
+            else:
+                exp.train(args.n_episodes - last_test)
+            exp.save_model()
+            # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
         exp.make_video("final", 100)
