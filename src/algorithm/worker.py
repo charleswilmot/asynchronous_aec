@@ -1,7 +1,7 @@
 import tensorflow as tf
 from algorithm.replay_buffer import Buffer
 from log.logging import DataLogger
-from enviroment.environment import Environment
+from environment.environment import Environment
 import tensorflow.contrib.layers as tl
 import numpy as np
 from algorithm.returns import to_return
@@ -555,7 +555,7 @@ class Worker:
         self.pipe.send("{} no more test cases, going IDLE".format(self.name))
 
     def playback_one_episode(self, greedy=False):
-        """Performs one episode of fake training (for visualizing a trained agent in the enviroment, see playback.py)
+        """Performs one episode of fake training (for visualizing a trained agent in the environment, see playback.py)
         The greedy boolean specifies wether the greedy or sampled policy should be used
         """
         fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
