@@ -211,8 +211,8 @@ class StereoVisionRobot:
     def set_delta_tilt_speed(self, delta, joint_limit_type=None):
         self._tilt_speed += rad(delta)
         left, right = self._check_tilt_limit(
-            self.tilt_left.get_joint_position() + self._tilt_speed,
-            self.tilt_right.get_joint_position() + self._tilt_speed,
+            self.tilt_left.get_joint_position() - self._tilt_speed,  # minus to get natural upward movement
+            self.tilt_right.get_joint_position() - self._tilt_speed,  # minus to get natural upward movement
             joint_limit_type)
         self.tilt_left.set_joint_position(left)
         self.tilt_right.set_joint_position(right)
