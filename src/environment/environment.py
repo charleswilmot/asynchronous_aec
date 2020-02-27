@@ -36,6 +36,7 @@ class RandomScreen(SquaredPlane):
         else:
             super().set_texture(self.textures_list[index])
 
+    # def episode_reset(self, preinit=False, tilt=True, pan=True):
     def episode_reset(self, preinit=False):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
         #self.speed = np.random.uniform(rad(1), rad(1.5))
@@ -136,6 +137,7 @@ class StereoVisionRobot:
         self._pan_speed = 0
         self.episode_reset()
 
+    # def episode_reset(self, vergence=True):
     def episode_reset(self):
         ### reset joints position / speeds
         self.reset_speed()

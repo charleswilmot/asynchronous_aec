@@ -9,10 +9,11 @@ rad = np.deg2rad
 def to_angle(other_distance):
     return deg(2 * np.arctan2(Y_EYES_DISTANCE, 2 * other_distance))
 
-def define_actions_set(n_actions_per_joint, image_size = 320):
-    n = n_actions_per_joint // 2
-    mini = 90 / image_size / 2
-    maxi = 90 / image_size / 2 * 2 ** (n - 1)
-    positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-    negative = -positive[::-1]
-    return np.concatenate([negative, [0], positive])
+
+
+actions_in_semi_pixels = np.array([-8, -4, -2, -1, 0, 1, 2, 4, 8])
+one_pixel = 90 / 320
+actions_set_values = actions_in_semi_pixels * one_pixel / 2
+actions_set_values_tilt = actions_set_values
+actions_set_values_pan = actions_set_values
+actions_set_values_vergence = actions_set_values

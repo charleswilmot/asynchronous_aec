@@ -1,6 +1,5 @@
 import tensorflow as tf
 from algorithm.replay_buffer import Buffer
-from log.logging import DataLogger
 from environment.environment import Environment
 import tensorflow.contrib.layers as tl
 import numpy as np
@@ -185,7 +184,7 @@ class Worker:
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts a central region of the camera images
         Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
-        self.crop_side_length = 16
+        self.crop_side_length = 32  # should be defined in the command line
         height_slice = slice(
             (240 - (self.crop_side_length * ratio)) // 2,
             (240 + (self.crop_side_length * ratio)) // 2)
@@ -679,6 +678,7 @@ class Worker:
         self._recerrs_data[iteration]["scale"] = [data["scale_recerrs"][r][0] for r in self.ratios]
         self._recerrs_data[iteration]["all"] = data["all_recerrs"][0]
 
+    # def define_actions_sets(self, tilt=True, pan=True, vergence=True):
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
         At the moment, pan and tilt are comprised only of zeros"""
