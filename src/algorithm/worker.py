@@ -409,7 +409,7 @@ class Worker:
         self.scale_recerr = {}
         self.scale_tensorboard_images = {}
         for ratio in self.ratios:
-            self.define_autoencoder_scale(ratio, filter_size=4, stride=2)
+            self.define_autoencoder_scale(ratio, filter_size=8, stride=4)
         self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
         self.autoencoder_loss = sum([self.scale_recerr[r] for r in self.ratios])
         self.total_recerrs = self.scale_recerrs[self.ratios[0]]
