@@ -112,14 +112,14 @@ if __name__ == "__main__":
     parser.add_argument(
         '-df', '--discount-factor',
         type=float,
-        default=0.1,
+        default=0.001,
         help="Discount factor."
     )
 
     parser.add_argument(
         '-eps', '--epsilon',
         type=float,
-        default=0.2,
+        default=0.05,
         help="Initial value for epsilon."
     )
 
