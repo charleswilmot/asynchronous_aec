@@ -736,7 +736,6 @@ class Worker:
         before_n_episodes = self.sess.run(self.episode_count)
         current_n_episode = before_n_episodes
         after_n_episode = before_n_episodes + n_episodes
-        print("{} debug -- train sees before_n_episodes = {} after_n_episode = {}".format(self.name, before_n_episodes, after_n_episode))
         while current_n_episode < after_n_episode:
             current_n_episode = self.get_episode()
             current_n_episode = self.train_one_episode()

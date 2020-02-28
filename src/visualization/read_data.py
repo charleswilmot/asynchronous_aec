@@ -34,7 +34,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # data = read_training_data("../../experiments/2020_02_25-09.40.18_mlr1.00e-04_clr1.00e-04__debug/data/training.data")
-    data = read_training_data("../../experiments/2020_02_26-23.07.07_mlr1.00e-04_clr1.00e-04__pan_tilt_geometric_action_set_uniform_screen_speed_0_to_1.125_after_fix_buffer_size_2000_crop_size_32/data/training.data")
+    data = read_training_data("../../experiments/2020_02_27-15.42.15_mlr1.00e-04_clr1.00e-04__pan_tilt_geometric_action_set_uniform_screen_speed_0_to_1.125_after_fix_buffer_size_2000_crop_size_32_filter_8/data/training.data")
 
     speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
     speed_errors_pan = data["eyes_speed"][:, -1, 1] - data["object_speed"][:, -1, 1]
@@ -56,5 +56,5 @@ if __name__ == "__main__":
     ax.set_xlabel("Episode")
     ax.set_ylabel("Speed error in deg/it")
     ax.set_title("Speed error wrt train time")
-    fig.savefig("/tmp/pan_tilt.png")
-    # plt.show()
+    # fig.savefig("/tmp/pan_tilt.png")
+    plt.show()

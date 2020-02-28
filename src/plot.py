@@ -150,6 +150,11 @@ if __name__ == "__main__":
 
         # print("v shape")
 
+        # reconstruction_error_wrt_speed_error(data, plotpath, save=args.save)
+        # mean_speed_error_episode_end_wrt_episode(data, plotpath, pantilt="tilt", save=args.save)
+        # speed_error_episode_end_wrt_episode(data, plotpath, pantilt="tilt", save=args.save)
+
+
         for pantilt in ['pan', 'tilt', 'pantilt']:
             mean_speed_error_episode_end_wrt_episode(data, plotpath, pantilt=pantilt, save=args.save)
             speed_error_episode_end_wrt_episode(data, plotpath, pantilt=pantilt, save=args.save)

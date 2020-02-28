@@ -87,7 +87,7 @@ class RandomScreen(SquaredPlane):
 
 
 class Environment:
-    def __init__(self, texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_bmp_selection/",
+    def __init__(self, texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_png_selection/",
                  scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=True):
         self.pyrep = PyRep()
         self.pyrep.launch(scene, headless=headless)
