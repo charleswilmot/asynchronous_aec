@@ -60,6 +60,21 @@ def generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="tilt"):
     return test_description, test_cases
 
 
+def generate_speed_trajectory(stimulus, speeds, pan_or_tilt="tilt"):
+    speeds = np.array([(0, s) for s in speeds]) if pan_or_tilt == "pan" else np.array([(s, 0) for s in speeds])
+    speeds = np.concatenate([-speeds, speeds], axis=0)
+    lists = {
+        "stimulus": stimulus,
+        "object_distances": [1],
+        "vergence_errors": [0],
+        "speed_errors": speeds,
+        "n_iterations": [20]
+    }
+    test_description = {"{}_speed_trajectory".format(pan_or_tilt): lists}
+    test_cases = test_cases_between(**lists)
+    return test_description, test_cases
+
+
 def update_test_conf(test_conf, test_description, test_cases):
     test_conf["test_descriptions"].update(test_description)
     if test_conf["test_cases"] is None:
@@ -81,10 +96,15 @@ if __name__ == "__main__":
 
     n_speed_errors = 30
     stimulus = range(20)
-    # test_description, test_cases = generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="tilt")
-    # update_test_conf(test_conf, test_description, test_cases)
+    test_description, test_cases = generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="tilt")
+    update_test_conf(test_conf, test_description, test_cases)
     test_description, test_cases = generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="pan")
     update_test_conf(test_conf, test_description, test_cases)
+    test_description, test_cases = generate_speed_trajectory(stimulus, [90 / 320 * i for i in [2, 4, 8]], pan_or_tilt="tilt")
+    update_test_conf(test_conf, test_description, test_cases)
+    test_description, test_cases = generate_speed_trajectory(stimulus, [90 / 320 * i for i in [2, 4, 8]], pan_or_tilt="pan")
+    update_test_conf(test_conf, test_description, test_cases)
 
-    with open("../../test_conf/delete_me_plz.pkl", "wb") as f:
+
+    with open("../../test_conf/test_pan_tilt.pkl", "wb") as f:
         pickle.dump(test_conf, f)
