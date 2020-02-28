@@ -539,6 +539,28 @@ def delta_reward_wrt_delta_speed(data, plotpath, save=False):
 
 
 
+def reconstruction_error_wrt_speed_error(data, plotpath, save=False):
+    gridsize = 40
+    fig = plt.figure()
+    print(data["eyes_speed"].shape, data["object_speed"].shape)
+    tilt_eyes_speed = data["eyes_speed"][:, 0]
+    tilt_object_speed = data["object_speed"][:, 0]
+    pan_eyes_speed = data["eyes_speed"][:, 1]
+    pan_object_speed = data["object_speed"][:, 1]
+    tilt_speed_error = tilt_eyes_speed - tilt_object_speed
+    pan_speed_error = pan_eyes_speed - pan_object_speed
+    reconstruction_errors = data["total_reconstruction_error"]
+    ax = fig.add_subplot(111)#, facecolor='grey')
+    hexbin = ax.hexbin(pan_speed_error, tilt_speed_error, reconstruction_errors, cmap=copper, gridsize=gridsize, mincnt=20)
+    cb = fig.colorbar(hexbin, ax=ax)
+    cb.set_label("Reconstruction error")
+    if save:
+        fig.savefig(plotpath + "/reconstruction_error_wrt_speed_error.png")
+    else:
+        plt.show()
+        plt.close(fig)
+
+
 def delta_reward_wrt_delta_speed_one_scale(data, plotpath, scale, save=False):
     gridsize = 60
     data = group_by_episode(data)
