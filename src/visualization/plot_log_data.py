@@ -1,6 +1,6 @@
 from numpy import ma
 from matplotlib import cbook
-from matplotlib.cm import seismic
+from matplotlib.cm import seismic, copper
 from matplotlib.colors import Normalize
 from helper.utils import *
 from scipy.signal import savgol_filter
