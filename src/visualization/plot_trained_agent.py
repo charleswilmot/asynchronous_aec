@@ -23,17 +23,17 @@ cdict = {'red':   ((0.0,  1.0, 1.0),
 rbg_cmap = LinearSegmentedColormap("rbg", cdict)
 
 
-def get_new_ax(fig, n_subplots, subplot_index, methode="square"):
-    if methode == "square":
+def get_new_ax(fig, n_subplots, subplot_index, method="square"):
+    if method == "square":
         n = int(np.ceil(np.sqrt(n_subplots)))
         if n != np.sqrt(n_subplots):
-            m = n + 1
+            m = n - 1
         else:
             m = n
         return fig.add_subplot(m, n, subplot_index + 1)
-    if methode == "horizontal":
+    if method == "horizontal":
         return fig.add_subplot(1, n_subplots, subplot_index + 1)
-    if methode == "vertical":
+    if method == "vertical":
         return fig.add_subplot(n_subplots, 1, subplot_index + 1)
 
 
@@ -62,7 +62,7 @@ def plot_vergence_trajectory_all(fig, lists_of_param_anchors, data):
     n_subplots = len(lists_of_param_anchors["object_distances"])
     # for each sublist, plot in an ax
     for subplot_index, subdata in enumerate(list_of_subdata):
-        ax = get_new_ax(fig, n_subplots, subplot_index, methode="square")
+        ax = get_new_ax(fig, n_subplots, subplot_index, method="square")
         plot_vergence_trajectory_sub(ax, subdata)
 
 
@@ -93,7 +93,7 @@ def plot_tilt_path_all(fig, lists_of_param_anchors, data):
     n_subplots = len(lists_of_param_anchors["object_distances"])
     # for each sublist, plot in an ax
     for subplot_index, subdata in enumerate(list_of_subdata):
-        ax = get_new_ax(fig, n_subplots, subplot_index, methode="square")
+        ax = get_new_ax(fig, n_subplots, subplot_index, method="square")
         plot_tilt_path(ax, subdata)
 
 
@@ -254,17 +254,33 @@ def plot_speed_trajectory(fig, lists_of_param_anchors, data, pan_or_tilt="pan"):
     test_cases = np.array([a for a, b in data])
     data = np.array([b for a, b in data], dtype=data[0][1].dtype)
     n_speeds = len(lists_of_param_anchors["speed_errors"])
+    at = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 19])
     for i, speed in enumerate(lists_of_param_anchors["speed_errors"]):
-        ax = get_new_ax(fig, n_speeds, i)
+        ax = get_new_ax(fig, n_speeds, i, method="square")
         where = np.where(test_cases["speed_error"][:, joint_index] == speed[joint_index])
         subdata = data[where]
-        print(subdata["speed_error"][:6, :10, joint_index])
-        print("\n\n\n\n\n\n\n")
-        ax.plot(subdata["speed_error"][:, :10, joint_index].T / 90 * 320, "b-", alpha=0.2)
-        ax.set_title("Screen speed {:.3f}".format(speed[joint_index]))
-        ax.set_xlabel("Iteration within episode")
-        ax.set_ylabel("speed error in pixel/it")
-
+        # print(subdata["speed_error"][:6, :10, joint_index])
+        # print("\n\n\n\n\n\n\n")
+        # ax.plot(subdata["speed_error"][:, :10, joint_index].T / 90 * 320, "b-", alpha=0.2)
+        bp = ax.boxplot(subdata["speed_error"][:, at, joint_index] / 90 * 320, showfliers=False)
+        for i, line in enumerate(bp["medians"]):
+            x_left, x_right = line.get_xdata()
+            y_left, y_right = line.get_ydata()
+            if i != 0:
+                ax.plot([xprev_right, x_left], [yprev_right, y_left], color=line.get_color(), linewidth=line.get_linewidth())
+            xprev_left, xprev_right = x_left, x_right
+            yprev_left, yprev_right = y_left, y_right
+        ax.set_title("{:.1f} pix/it".format(speed[joint_index] / 90 * 320))
+        geo = ax.get_geometry()
+        if (geo[-1] - 1) // geo[1] == geo[0] - 1:
+            ax.set_xlabel("Iteration within episode")
+        if geo[-1] % geo[1] == 1:
+            ax.set_ylabel("speed error in pixel/it")
+        xticks = np.arange(1, 1 + len(at))
+        xticklabels = at + 1
+        ax.set_xticks(xticks[1::2])
+        ax.set_xticklabels(xticklabels[1::2])
+    fig.tight_layout()
 
 def all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan"):
     anchors = lists_of_param_anchors["wrt_{}_speed_error".format(pan_or_tilt)]
@@ -366,5 +382,5 @@ if __name__ == "__main__":
     #     all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="tilt")
     if "pan_speed_trajectory" in lists_of_param_anchors:
         all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="pan")
-    # if "tilt_speed_trajectory" in lists_of_param_anchors:
-    #     all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="tilt")
+    if "tilt_speed_trajectory" in lists_of_param_anchors:
+        all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="tilt")
