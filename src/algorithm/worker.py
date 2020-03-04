@@ -551,7 +551,9 @@ class Worker:
                 test_data[i]["eye_speed"] = self.environment.robot.speed
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
                 test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
-                self.environment.robot.set_action(action_value, joint_limit_type="none")
+                if i + 1 != test_case["n_iterations"]:
+                    self.environment.robot.set_action(action_value, joint_limit_type="none")
+                left_image_before = left_image
             self.testing_data_queue.put((test_case, test_data))
         self.pipe.send("{} no more test cases, going IDLE".format(self.name))
 
