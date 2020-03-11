@@ -70,7 +70,7 @@ class Worker:
                  logdir, simulator_port,
                  model_lr, critic_lr, discount_factor,
                  epsilon_init, epsilon_decay,
-                 episode_length, model_buffer_size, update_factor,
+                 episode_length, model_buffer_size, update_factor, batch_size,
                  worker0_display=False):
         self.task_index = task_index
         self.cluster = cluster
@@ -149,7 +149,7 @@ class Worker:
             ("scale", np.float32, (self.n_encoders, self.n_scales)),
             ("all", np.float32, (self.n_encoders,))
         ])
-        self.buffer = Buffer(size=model_buffer_size, dtype=self.behaviour_data_type, batch_size=200)
+        self.buffer = Buffer(size=model_buffer_size, dtype=self.behaviour_data_type, batch_size=batch_size)
 
         # + 1 for the additional / sacrificial iteration
         self._behaviour_data = np.zeros(shape=self.episode_length + 1, dtype=self.behaviour_data_type)

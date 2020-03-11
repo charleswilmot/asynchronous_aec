@@ -89,6 +89,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-bs', '--batch-size',
+        type=int,
+        help="Size of one batch.",
+        default=200
+    )
+
+    parser.add_argument(
         '-r', '--restore-from',
         type=str,
         default="none",

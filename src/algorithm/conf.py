@@ -12,3 +12,4 @@ class Conf:
         self.episode_length = args.episode_length
         self.update_factor = args.update_factor
         self.buffer_size = 2000
+        self.batch_size = args.batch_size
