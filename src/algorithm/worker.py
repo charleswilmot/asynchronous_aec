@@ -854,18 +854,16 @@ class Worker:
         current_n_episode = before_n_episodes
         after_n_episode = before_n_episodes + n_episodes
         while current_n_episode < after_n_episode:
+            tstart = time.time()
             current_n_episode = self.get_episode()
+            tsimulation = time.time()
             current_n_episode = self.train_one_episode()
+            ttrain = time.time()
+            self._tsimulation += tsimulation - tstart
+            self._ttrain += ttrain - tsimulation
+            self._n_time_measurements += 1
             if current_n_episode >= after_n_episode:
                 break
-        self.pipe.send("{} going IDLE".format(self.name))
-
-    def playback(self, n_episodes, greedy=False):
-        """Calls the playback_one_episode methode n_episodes times
-        """
-        for i in range(n_episodes):
-            self.playback_one_episode(greedy=greedy)
-            print("{} episode {}/{}".format(self.name, i, n_episodes))
         self.pipe.send("{} going IDLE".format(self.name))
 
     def make_video(self, path, n_episodes, training=False):
