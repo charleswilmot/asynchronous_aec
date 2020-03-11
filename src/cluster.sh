@@ -1,2 +1,4 @@
 #!/usr/bin/env sh
-srun python3 asynchronous.py "$@"
+#SBATCH --exclude scuderi
+
+srun -u python3 asynchronous.py "$@"

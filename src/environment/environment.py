@@ -39,13 +39,8 @@ class RandomScreen(SquaredPlane):
     # def episode_reset(self, preinit=False, tilt=True, pan=True):
     def episode_reset(self, preinit=False):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        #self.speed = np.random.uniform(rad(1), rad(1.5))
-        self.speed = rad(0.7)
-        #self.direction = 0
-        #self.direction = np.random.choice([0, 0.5 * np.pi, np.pi, 1.5 * np.pi])
-        self.direction = np.random.choice([rad(45), rad(195)])
-        #self.direction = np.random.uniform(rad(0), rad(360))
-        #self.direction = np.random.uniform(0, 2 * np.pi)
+        self.speed = np.random.uniform(rad(0.0), rad(1.125))
+        self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(-1 if preinit else 0)
 
@@ -131,7 +126,7 @@ class StereoVisionRobot:
         self.min_distance = min_distance
         self.max_distance = max_distance
         self.default_joint_limit_type = default_joint_limit_type
-        self._pan_max = rad(4)
+        self._pan_max = rad(10)
         self._tilt_max = rad(10)
         self._tilt_speed = 0
         self._pan_speed = 0
@@ -232,7 +227,7 @@ class StereoVisionRobot:
         return self.tilt_position, self.pan_position, self.vergence_position
 
     def get_vergence_error(self, other_distance):
-        return to_angle(other_distance) - self.vergence_position
+        return self.vergence_position - to_angle(other_distance)
 
     def get_tilt_speed(self):
         return deg(self._tilt_speed)

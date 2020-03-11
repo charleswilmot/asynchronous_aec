@@ -60,9 +60,23 @@ def generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="tilt"):
     return test_description, test_cases
 
 
+def generate_wrt_vergence_error(stimulus, n_vergence_errors):
+    min_action = 90 / 320 / 2
+    vergence_errors = np.arange(- min_action * n_vergence_errors, min_action * (n_vergence_errors + 1), min_action)
+    lists = {
+        "stimulus": stimulus,
+        "object_distances": [1],
+        "speed_errors": [(0, 0)],
+        "vergence_errors": vergence_errors,
+        "n_iterations": [1]
+    }
+    test_description = {"wrt_vergence_error": lists}
+    test_cases = test_cases_between(**lists)
+    return test_description, test_cases
+
+
 def generate_speed_trajectory(stimulus, speeds, pan_or_tilt="tilt"):
     speeds = np.array([(0, s) for s in speeds]) if pan_or_tilt == "pan" else np.array([(s, 0) for s in speeds])
-    speeds = np.concatenate([-speeds, speeds], axis=0)
     lists = {
         "stimulus": stimulus,
         "object_distances": [1],
@@ -90,21 +104,24 @@ if __name__ == "__main__":
     #    "test_cases": big_array_of_type_dttest_case
     # }
     test_conf = {"test_descriptions": {}, "test_cases": np.zeros(0, dtype=dttest_case)}
-
-    # test_description, test_cases = generate_vergence_trajectory(range(20), [0.5, 1, 2, 3, 3.5], [-2, -1, 1, 2])
-    # update_test_conf(test_conf, test_description, test_cases)
-
     n_speed_errors = 30
+    n_vergence_errors = n_speed_errors
     stimulus = range(20)
+    errors = [90 / 320 * i for i in [-2, -4, -8, 2, 4, 8]]
+
     test_description, test_cases = generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="tilt")
     update_test_conf(test_conf, test_description, test_cases)
     test_description, test_cases = generate_wrt_speed_error(stimulus, n_speed_errors, pan_or_tilt="pan")
     update_test_conf(test_conf, test_description, test_cases)
-    test_description, test_cases = generate_speed_trajectory(stimulus, [90 / 320 * i for i in [2, 4, 8]], pan_or_tilt="tilt")
+    test_description, test_cases = generate_wrt_vergence_error(stimulus, n_vergence_errors)
     update_test_conf(test_conf, test_description, test_cases)
-    test_description, test_cases = generate_speed_trajectory(stimulus, [90 / 320 * i for i in [2, 4, 8]], pan_or_tilt="pan")
+    test_description, test_cases = generate_speed_trajectory(stimulus, errors, pan_or_tilt="tilt")
+    update_test_conf(test_conf, test_description, test_cases)
+    test_description, test_cases = generate_speed_trajectory(stimulus, errors, pan_or_tilt="pan")
+    update_test_conf(test_conf, test_description, test_cases)
+    test_description, test_cases = generate_vergence_trajectory(stimulus, [1], errors)
     update_test_conf(test_conf, test_description, test_cases)
 
 
-    with open("../../test_conf/test_pan_tilt.pkl", "wb") as f:
+    with open("../../test_conf/test_pan_tilt_vergence.pkl", "wb") as f:
         pickle.dump(test_conf, f)

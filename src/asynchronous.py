@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
-    test_at = [5000, 10000, 20000, 30000, 50000, 75000, 100000, 150000]
+    test_at = [25000, 50000, 100000, 150000, 200000, 250000, 300000, 350000, 400000, 500000, 600000]
     test_at = [x for x in test_at if x < args.n_episodes] + [np.inf]
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
@@ -171,7 +171,6 @@ if __name__ == "__main__":
             else:
                 exp.train(args.n_episodes - last_test)
             exp.save_model()
-            # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
-        exp.make_video("final", 100)
+            exp.test("../test_conf/test_pan_tilt_vergence.pkl")
         if not args.no_video:
             exp.make_video("final", 100)

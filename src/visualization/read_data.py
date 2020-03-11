@@ -14,14 +14,14 @@ def read_training_data(path):
 if __name__ == "__main__":
     fields = [
         'all_rewards',
-        'all_recerrs',
+        'total_recerrs',
         'eyes_speed',
         'object_speed',
         'greedy_actions_indices',
         'sampled_actions_indices',
         'episode_number',
         'patch_target_return',
-        'all_target_return',
+        'total_target_return',
         'eyes_position',
         'object_distance',
         'scale_rewards',

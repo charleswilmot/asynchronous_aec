@@ -10,6 +10,10 @@ def to_angle(other_distance):
     return deg(2 * np.arctan2(Y_EYES_DISTANCE, 2 * other_distance))
 
 
+def vergence_error(eyes_positions, object_distances):
+    vergences = eyes_positions[..., -1]
+    return to_angle(object_distances) - vergences
+
 
 actions_in_semi_pixels = np.array([-8, -4, -2, -1, 0, 1, 2, 4, 8])
 one_pixel = 90 / 320

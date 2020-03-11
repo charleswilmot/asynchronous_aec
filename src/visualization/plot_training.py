@@ -3,14 +3,41 @@ import argparse
 from read_data import read_training_data
 import numpy as np
 import matplotlib.pyplot as plt
+from helper.utils import vergence_error
+
+
+TRAINING_DATA_RECORD_FREQ = 10
+
+
+def plot_joint_errors(fig, data, win_size=500, stddev=200):
+    ax = fig.add_subplot(111)
+    # speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
+    # speed_errors = data["eyes_speed"][:, -1] - data["object_speed"][:, -1]
+    # speed_errors_tilt = speed_error[:, 0]
+    # speed_errors_pan = speed_error[:, 1]
+    speed_errors_tilt = data["eyes_speed"][:, -1, 0] - data["object_speed"][:, -1, 0]
+    speed_errors_pan = data["eyes_speed"][:, -1, 1] - data["object_speed"][:, -1, 1]
+    vergence_errors = vergence_error(data["eyes_position"][:, -1], data["object_distance"][:, -1])
+    kernel = np.exp(-(np.arange(-win_size / 2, win_size / 2) ** 2) / stddev ** 2)
+    kernel /= np.sum(kernel)
+    a = np.convolve(np.abs(speed_errors_tilt), kernel, mode="valid")
+    b = np.convolve(np.abs(speed_errors_pan), kernel, mode="valid")
+    c = np.convolve(np.abs(vergence_errors), kernel, mode="valid")
+    x = np.arange(win_size / 2, a.shape[0] + win_size / 2) * TRAINING_DATA_RECORD_FREQ
+    ax.plot(x, a / 90 * 320, label="tilt")
+    ax.plot(x, b / 90 * 320, label="pan")
+    ax.plot(x, c / 90 * 320, label="vergence")
+    ax.axhline(1, color="k", linestyle="--")
+    ax.legend()
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Speed error in pixels/it")
+    ax.set_title("Speed error wrt train time")
 
 
 
-
-
-
-
-
+def plot(data):
+    with FigureManager("joint_errors.png") as fig:
+        plot_joint_errors(fig, data, 500, 200)
 
 
 
@@ -67,24 +94,4 @@ if __name__ == "__main__":
             else:
                 plt.show()
 
-
-    with FigureManager("speed_error_wrt_episode.png") as fig:
-        ax = fig.add_subplot(111)
-
-        speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
-        speed_errors_pan = data["eyes_speed"][:, -1, 1] - data["object_speed"][:, -1, 1]
-        win_size = 500
-        stddev = 200
-        kernel = np.exp(-(np.arange(-win_size / 2, win_size / 2) ** 2) / stddev ** 2)
-        kernel /= np.sum(kernel)
-        a = np.convolve(np.abs(speed_errors_tilt), kernel, mode="valid")
-        b = np.convolve(np.abs(speed_errors_pan), kernel, mode="valid")
-        x = np.arange(win_size / 2, win_size / 2 + a.shape[0]) * data["eyes_speed"].shape[1]
-        ax.plot(x, a / 90 * 320, label="tilt")
-        ax.plot(x, b / 90 * 320, label="pan")
-        ax.axhline(1, color="k", linestyle="--")
-        # ax.set_ylim([-0.1, 1.6])
-        ax.legend()
-        ax.set_xlabel("Episode")
-        ax.set_ylabel("Speed error in pixels/it")
-        ax.set_title("Speed error wrt train time")
+    plot(data)
