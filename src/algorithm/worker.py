@@ -810,7 +810,13 @@ class Worker:
         negative = -positive[::-1]
         self.action_set_pan = np.concatenate([negative, [0], positive])
         # vergence
-        self.action_set_vergence = np.zeros(self.n_actions_per_joint)
+        # self.action_set_vergence = np.zeros(self.n_actions_per_joint)
+        half_pixel_in_angle = 90 / 320 / 2
+        mini = half_pixel_in_angle
+        maxi = half_pixel_in_angle * 2 ** (n - 1)
+        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
+        negative = -positive[::-1]
+        self.action_set_vergence = np.concatenate([negative, [0], positive])
 
     def actions_indices_to_values(self, indices_dict):
         return [self.action_set_tilt[indices_dict["tilt"][0]],

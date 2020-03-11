@@ -112,7 +112,7 @@ class Environment:
         self.screen.episode_reset(preinit=preinit)
         # reset robot
         self.robot.episode_reset()
-        self.robot.set_vergence_position(to_angle(self.screen.distance))
+        # self.robot.set_vergence_position(to_angle(self.screen.distance))
         self.pyrep.step()
 
     def close(self):
