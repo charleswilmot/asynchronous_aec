@@ -137,6 +137,12 @@ if __name__ == "__main__":
         help="Decay for epsilon."
     )
 
+    parser.add_argument(
+        '-nv', '--no-video',
+        action='store_true',
+        help="Don't record a video if present"
+    )
+
     args = parser.parse_args()
 
     if not args.experiment_path:
@@ -167,3 +173,5 @@ if __name__ == "__main__":
             exp.save_model()
             # exp.test("../test_conf/vergence_trajectory_4_distances.pkl")
         exp.make_video("final", 100)
+        if not args.no_video:
+            exp.make_video("final", 100)
