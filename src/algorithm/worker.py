@@ -12,20 +12,6 @@ from PIL import ImageDraw, Image #, ImageFont
 import queue
 
 
-dttest_data = np.dtype([
-    ("action_index", (np.int32, 3)),
-    ("action_value", (np.float32, 3)),
-    ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (dttest_data shoud be member of the worker)
-    ("critic_value_pan", (np.float32, 9)),
-    ("critic_value_vergence", (np.float32, 9)),
-    ("total_reconstruction_error", np.float32),
-    ("eye_position", (np.float32, 3)),
-    ("eye_speed", (np.float32, 2)),
-    ("speed_error", (np.float32, 2)),
-    ("vergence_error", np.float32)
-])
-
-
 anaglyph_matrix = np.array([
     [0.299, 0    , 0    ],
     [0.587, 0    , 0    ],
@@ -101,53 +87,84 @@ class Worker:
         self.ratios = list(range(1, 4)) # Last number is excluded: list(range(1, 3)) -> [1, 2]
         #self.ratios = [1, 2, 3]
         self.n_scales = len(self.ratios)
-        self.n_encoders = 1  # later use 2 (time encoder / left right encoder)
+        self.turn_2_frames_vergence_on = True
+        self.n_encoders = 2 if self.turn_2_frames_vergence_on else 1
         self.n_joints = 3
         self.define_networks()
         self.define_actions_sets()
+        self._tsimulation = 0.0
+        self._ttrain = 0.0
+        self._n_time_measurements = 0
 
         self.update_fetches = {
             "ops": [self.train_op, self.epsilon_update],
             "episode_count": self.update_count_inc
         }
         self.training_behaviour_fetches = {
-            "scales_inp": self.scales_inp,
-            "patch_recerrs": self.patch_recerrs,
-            "scale_recerrs": self.scale_recerrs,
-            "all_recerrs": self.total_recerrs,
+            "scales_inp_4_frames": self.scales_inp_4_frames,
+            "patch_recerrs_4_frames": self.patch_recerrs_4_frames,
+            "scale_recerrs_4_frames": self.scale_recerrs_4_frames,
+            "total_recerrs_4_frames": self.total_recerrs_4_frames,
             "sampled_actions_indices": self.sampled_actions_indices,
             "greedy_actions_indices": self.greedy_actions_indices,
         }
-        n_patches = self.scale_rec[self.ratios[0]].get_shape()[1]
+        if self.turn_2_frames_vergence_on:
+            complement_2_frames = {
+                "patch_recerrs_2_frames": self.patch_recerrs_2_frames,
+                "scale_recerrs_2_frames": self.scale_recerrs_2_frames,
+                "total_recerrs_2_frames": self.total_recerrs_2_frames
+            }
+            self.training_behaviour_fetches.update(complement_2_frames)
+        n_patches = self.scale_rec_4_frames[self.ratios[0]].get_shape()[1]
         self.behaviour_data_type = np.dtype([
-            ("scales_inp", np.float32, (self.n_encoders, self.n_scales, self.crop_side_length, self.crop_side_length, 6)),
+            ("scales_inp", np.float32, (self.n_scales, self.crop_side_length, self.crop_side_length, 12)),
             ("sampled_actions_indices", np.int32, (self.n_joints)),
-            ("patch_target_return", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
-            ("scale_target_return", np.float32, (self.n_encoders, self.n_scales)),
-            ("all_target_return", np.float32, (self.n_encoders,))
+            ("patch_target_return", np.float32, (self.n_joints, self.n_scales, n_patches, n_patches)),
+            ("scale_target_return", np.float32, (self.n_joints, self.n_scales)),
+            ("total_target_return", np.float32, (self.n_joints,))
         ])
         self.training_data_type = np.dtype([
             ("sampled_actions_indices", np.int32, (self.n_joints)),
             ("greedy_actions_indices", np.int32, (self.n_joints)),
             ("patch_recerrs", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
             ("scale_recerrs", np.float32, (self.n_encoders, self.n_scales)),
-            ("all_recerrs", np.float32, (self.n_encoders,)),
+            ("total_recerrs", np.float32, (self.n_encoders,)),
             ("patch_rewards", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
             ("scale_rewards", np.float32, (self.n_encoders, self.n_scales)),
             ("all_rewards", np.float32, (self.n_encoders,)),
             ("patch_target_return", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
             ("scale_target_return", np.float32, (self.n_encoders, self.n_scales)),
-            ("all_target_return", np.float32, (self.n_encoders,)),
+            ("total_target_return", np.float32, (self.n_encoders,)),
             ("object_distance", np.float32, ()),
             ("object_speed", np.float32, (2, )),
             ("eyes_position", np.float32, (3, )),
             ("eyes_speed", np.float32, (2, )),
             ("episode_number", np.int32, ())
         ])
+        testing_data_type_description = [
+            ("action_index", (np.int32, 3)),
+            ("action_value", (np.float32, 3)),
+            ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (self.testing_data_type shoud be member of the worker)
+            ("critic_value_pan", (np.float32, 9)),
+            ("critic_value_vergence", (np.float32, 9)),
+            ("total_recerrs_4_frames", (np.float32)),
+            ("scale_recerrs_4_frames", (np.float32, self.n_scales)),
+            ("total_reconstruction_error", np.float32),
+            ("eye_position", (np.float32, 3)),
+            ("eye_speed", (np.float32, 2)),
+            ("speed_error", (np.float32, 2)),
+            ("vergence_error", np.float32)
+        ]
+        if self.turn_2_frames_vergence_on:
+            testing_data_type_description += [
+                ("total_recerrs_2_frames", (np.float32)),
+                ("scale_recerrs_2_frames", (np.float32, self.n_scales))
+            ]
+        self.testing_data_type = np.dtype(testing_data_type_description)
         self.levels_data_type = np.dtype([
             ("patch", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
             ("scale", np.float32, (self.n_encoders, self.n_scales)),
-            ("all", np.float32, (self.n_encoders,))
+            ("total", np.float32, (self.n_encoders,))
         ])
         self.buffer = Buffer(size=model_buffer_size, dtype=self.behaviour_data_type, batch_size=batch_size)
 
@@ -181,66 +198,13 @@ class Worker:
         except queue.Full:
             print("{} could not register training data. (Queue is full)")
 
-    def define_scale_inp(self, ratio):
-        """Crops, downscales and converts a central region of the camera images
-        Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
-        self.crop_side_length = 32  # should be defined in the command line
-        height_slice = slice(
-            (240 - (self.crop_side_length * ratio)) // 2,
-            (240 + (self.crop_side_length * ratio)) // 2)
-        width_slice = slice(
-            (320 - (self.crop_side_length * ratio)) // 2,
-            (320 + (self.crop_side_length * ratio)) // 2)
-        # CROP
-        scale = self.left_cams_stacked[:, height_slice, width_slice, :]
-        # DOWNSCALE
-        scale = tf.image.resize_bilinear(scale, [self.crop_side_length, self.crop_side_length])
-        self.scales_inp[ratio] = tf.placeholder_with_default(scale * 2 - 1, shape=scale.get_shape(), name="input_at_scale_{}".format(ratio))
-
-    def define_autoencoder_scale(self, ratio, filter_size=4, stride=2):
-        """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
-        inp = self.scales_inp[ratio]
-        batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
-        # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
-        # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
-        # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
-        # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
-        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
-        target = tf.extract_image_patches(
-            inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
-        )
-        size = np.prod(bottleneck.get_shape()[1:])
-        self.scale_latent_conv[ratio] = bottleneck
-        self.scale_latent[ratio] = tf.reshape(bottleneck, (-1, size))
-        self.scale_rec[ratio] = reconstruction
-        self.patch_recerrs[ratio] = tf.reduce_mean((self.scale_rec[ratio] - target) ** 2, axis=3)
-        self.scale_recerrs[ratio] = tf.reduce_mean(self.patch_recerrs[ratio], axis=[1, 2])
-        self.scale_recerr[ratio] = tf.reduce_sum(self.scale_recerrs[ratio])  # sum on the batch dimension
-
-        ### Images for tensorboard:
-        n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
-        left_right = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 6))
-        left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
-        left = left_right[..., :3]
-        left_before = left_right[..., 3:]
-        image_left = tf.concat([left, left_before], axis=0)
-        left_right = tf.reshape(target[-1], (n_patches, n_patches, filter_size, filter_size, 6))
-        left_right = tf.transpose(left_right, perm=[0, 2, 1, 3, 4])
-        left_right = tf.reshape(left_right, (n_patches * filter_size, n_patches * filter_size, 6))
-        left = left_right[..., :3]
-        left_before = left_right[..., 3:]
-        image_right = tf.concat([left, left_before], axis=0)
-        self.scale_tensorboard_images[ratio] = tf.expand_dims(tf.concat([image_left, image_right], axis=1), axis=0)
-
     def define_critic_patch(self, ratio, joint_name):
         """Defines the critic at the level of the patches, for one scale, for one joint
         """
-        inp = tf.stop_gradient(self.scale_latent_conv[ratio])
+        if self.turn_2_frames_vergence_on and joint_name == "vergence":
+            inp = tf.stop_gradient(self.scale_latent_conv_2_frames[ratio])
+        else:
+            inp = tf.stop_gradient(self.scale_latent_conv_4_frames[ratio])
         conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
         patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
         self.patch_values[joint_name][ratio] = patch_values  # patch_values  40, 7, 7, 9
@@ -269,8 +233,12 @@ class Worker:
         """Defines the critic at the level of one scale, for one joint
         """
         size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
+        if self.turn_2_frames_vergence_on and joint_name == "vergence":
+            inp = tf.stop_gradient(self.scale_latent_2_frames[ratio])
+        else:
+            inp = tf.stop_gradient(self.scale_latent_4_frames[ratio])
         inp = tf.concat([
-            tf.stop_gradient(self.scale_latent[ratio]),
+            inp,
             tf.stop_gradient(tf.reshape(self.patch_values[joint_name][ratio], (-1, size)))
         ], axis=1)
         # inp = self.scale_latent[ratio]
@@ -301,8 +269,12 @@ class Worker:
         for ratio in self.ratios:
             self.define_critic_patch(ratio, joint_name)
             self.define_critic_scale(ratio, joint_name)
+        if self.turn_2_frames_vergence_on and joint_name == "vergence":
+            inp = tf.stop_gradient(self.latent_2_frames)
+        else:
+            inp = tf.stop_gradient(self.latent_4_frames)
         inp = tf.concat(
-            [tf.stop_gradient(self.latent)] +
+            [inp] +
             [tf.stop_gradient(self.scale_values[joint_name][r]) for r in self.ratios], axis=-1)
         # inp = tf.stop_gradient(self.latent)
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
@@ -393,46 +365,166 @@ class Worker:
 
     def define_inps(self):
         """Generates the different 32x32 image patches for the given ratios."""
-        self.scales_inp = {}
+        self.scales_inp_2_frames = {}
+        self.scales_inp_4_frames = {}
         for ratio in self.ratios:
             self.define_scale_inp(ratio)
 
-    def define_autoencoder(self):
-        self.scale_latent = {}
-        self.scale_latent_conv = {}
-        self.scale_rec = {}
-        self.patch_recerrs = {}
-        self.patch_rewards = {}
-        self.scale_recerrs = {}
-        self.scale_rewards = {}
-        self.scale_rewards__partial = {}
-        self.scale_recerr = {}
+    def define_scale_inp(self, ratio):
+        """Crops, downscales and converts a central region of the camera images
+        Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
+        self.crop_side_length = 32  # should be defined in the command line
+        height_slice = slice(
+            (240 - (self.crop_side_length * ratio)) // 2,
+            (240 + (self.crop_side_length * ratio)) // 2)
+        width_slice = slice(
+            (320 - (self.crop_side_length * ratio)) // 2,
+            (320 + (self.crop_side_length * ratio)) // 2)
+        # CROP
+        scale_4_frames = self.stacked_4_frames[:, height_slice, width_slice, :]
+        # DOWNSCALE
+        scale_4_frames = tf.image.resize_bilinear(scale_4_frames, [self.crop_side_length, self.crop_side_length]) * 2 - 1
+        self.scales_inp_4_frames[ratio] = tf.placeholder_with_default(scale_4_frames, shape=scale_4_frames.get_shape(), name="4_frames_input_at_scale_{}".format(ratio))
+        if self.turn_2_frames_vergence_on:
+            scale_2_frames = scale_4_frames[..., 6:]
+            self.scales_inp_2_frames[ratio] = tf.placeholder_with_default(scale_2_frames, shape=scale_2_frames.get_shape(), name="2_frames_input_at_scale_{}".format(ratio))
+
+    def define_2_frames_autoencoder(self, filter_size=8, stride=4):
+        self.scale_latent_2_frames = {}
+        self.scale_latent_conv_2_frames = {}
+        self.scale_rec_2_frames = {}
+        self.patch_recerrs_2_frames = {}
+        self.scale_recerrs_2_frames = {}
+        self.scale_recerr_2_frames = {}
+        for ratio in self.ratios:
+            self.define_2_frames_autoencoder_scale(ratio, filter_size=filter_size, stride=stride)
+        self.latent_2_frames = tf.concat([self.scale_latent_2_frames[r] for r in self.ratios], axis=1)
+        self.autoencoder_loss_2_frames = sum([self.scale_recerr_2_frames[r] for r in self.ratios])
+        self.total_recerrs_2_frames = self.scale_recerrs_2_frames[self.ratios[0]]
+        for ration in self.ratios[1:]:
+            self.total_recerrs_2_frames += self.scale_recerrs_2_frames[ratio]
+        self.total_recerrs_2_frames /= self.n_scales
+
+    def define_2_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2):
+        """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
+        inp = self.scales_inp_2_frames[ratio]
+        batch_size = tf.shape(inp)[0]
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
+        # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
+        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
+        target = tf.extract_image_patches(
+            inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
+        )
+        size = np.prod(bottleneck.get_shape()[1:])
+        self.scale_latent_conv_2_frames[ratio] = bottleneck
+        self.scale_latent_2_frames[ratio] = tf.reshape(bottleneck, (-1, size))
+        self.scale_rec_2_frames[ratio] = reconstruction
+        self.patch_recerrs_2_frames[ratio] = tf.reduce_mean((self.scale_rec_2_frames[ratio] - target) ** 2, axis=3)
+        self.scale_recerrs_2_frames[ratio] = tf.reduce_mean(self.patch_recerrs_2_frames[ratio], axis=[1, 2])
+        self.scale_recerr_2_frames[ratio] = tf.reduce_sum(self.scale_recerrs_2_frames[ratio])  # sum on the batch dimension
+
+    def define_4_frames_autoencoder(self, filter_size=8, stride=4):
+        self.scale_latent_4_frames = {}
+        self.scale_latent_conv_4_frames = {}
+        self.scale_rec_4_frames = {}
+        self.patch_recerrs_4_frames = {}
+        self.scale_recerrs_4_frames = {}
+        self.scale_recerr_4_frames = {}
         self.scale_tensorboard_images = {}
         for ratio in self.ratios:
-            self.define_autoencoder_scale(ratio, filter_size=8, stride=4)
-        self.latent = tf.concat([self.scale_latent[r] for r in self.ratios], axis=1)
-        self.autoencoder_loss = sum([self.scale_recerr[r] for r in self.ratios])
-        self.total_recerrs = self.scale_recerrs[self.ratios[0]]
+            self.define_4_frames_autoencoder_scale(ratio, filter_size=filter_size, stride=stride)
+        self.latent_4_frames = tf.concat([self.scale_latent_4_frames[r] for r in self.ratios], axis=1)
+        self.autoencoder_loss_4_frames = sum([self.scale_recerr_4_frames[r] for r in self.ratios])
+        self.total_recerrs_4_frames = self.scale_recerrs_4_frames[self.ratios[0]]
         for ration in self.ratios[1:]:
-            self.total_recerrs += self.scale_recerrs[ratio]
-        self.total_recerrs /= self.n_scales
+            self.total_recerrs_4_frames += self.scale_recerrs_4_frames[ratio]
+        self.total_recerrs_4_frames /= self.n_scales
+
+    def define_4_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2):
+        """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
+        inp = self.scales_inp_4_frames[ratio]
+        batch_size = tf.shape(inp)[0]
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
+        # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
+        # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 4 // 2, 1, 1, "valid", activation_fn=lrelu)
+        # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 4, 1, 1, "valid", activation_fn=None)
+        reconstruction = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 4, 1, 1, "valid", activation_fn=None)
+        target = tf.extract_image_patches(
+            inp, [1, filter_size, filter_size, 1], [1, stride, stride, 1], [1, 1, 1, 1], 'VALID'
+        )
+        size = np.prod(bottleneck.get_shape()[1:])
+        self.scale_latent_conv_4_frames[ratio] = bottleneck
+        self.scale_latent_4_frames[ratio] = tf.reshape(bottleneck, (-1, size))
+        self.scale_rec_4_frames[ratio] = reconstruction
+        self.patch_recerrs_4_frames[ratio] = tf.reduce_mean((self.scale_rec_4_frames[ratio] - target) ** 2, axis=3)
+        self.scale_recerrs_4_frames[ratio] = tf.reduce_mean(self.patch_recerrs_4_frames[ratio], axis=[1, 2])
+        self.scale_recerr_4_frames[ratio] = tf.reduce_sum(self.scale_recerrs_4_frames[ratio])  # sum on the batch dimension
+        # ### Images for tensorboard:
+        # CONTENT:
+        # input                 reconstruction
+        # left_t-1   left_t     left_t-1   left_t
+        # right_t-1  right_t    right_t-1  right_t
+        # NAMES:
+        # input                 reconstruction
+        # q          w          e          r
+        # a          s          d          f
+        n_patches = (inp.get_shape()[1] - filter_size + stride) // stride
+        reconstructions = tf.reshape(reconstruction[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        reconstructions = tf.transpose(reconstructions, perm=[0, 2, 1, 3, 4])
+        reconstructions = tf.reshape(reconstructions, (n_patches * filter_size, n_patches * filter_size, 12))
+        e = reconstructions[..., 0:3]
+        r = reconstructions[..., 3:6]
+        d = reconstructions[..., 6:9]
+        f = reconstructions[..., 9:12]
+        inputs = tf.reshape(target[-1], (n_patches, n_patches, filter_size, filter_size, 12))
+        inputs = tf.transpose(inputs, perm=[0, 2, 1, 3, 4])
+        inputs = tf.reshape(inputs, (n_patches * filter_size, n_patches * filter_size, 12))
+        q = inputs[..., 0:3]
+        w = inputs[..., 3:6]
+        a = inputs[..., 6:9]
+        s = inputs[..., 9:12]
+        top_row = tf.concat([q, w, e, r], axis=1)
+        bottom_row = tf.concat([a, s, d, f], axis=1)
+        img = tf.concat([top_row, bottom_row], axis=0)
+        self.scale_tensorboard_images[ratio] = tf.expand_dims(img, axis=0)
 
     def define_epsilon(self):
         self.epsilon = tf.Variable(self.epsilon_init)
         self.epsilon_update = self.epsilon.assign(self.epsilon * self.epsilon_decay)
 
     def define_networks(self):
-        self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="cam1")
-        self.left_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="cam2")
-        self.left_cams_stacked = tf.concat([self.left_cam, self.left_cam_before], axis=-1)  # (None, 240, 320, 12)
+        self.left_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="left_cam")
+        self.left_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="left_cam_before")
+        self.right_cam = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="right_cam")
+        self.right_cam_before = tf.placeholder(shape=(None, 240, 320, 3), dtype=tf.float32, name="right_cam_before")
+        self.stacked_4_frames = tf.concat([
+            self.left_cam_before,
+            self.right_cam_before,
+            self.left_cam,
+            self.right_cam
+        ], axis=-1)  # (None, 240, 320, 12)
         ### graph definitions:
         self.define_inps()
-        self.define_autoencoder()
+        self.define_4_frames_autoencoder()
+        if self.turn_2_frames_vergence_on:
+            self.define_2_frames_autoencoder()
         self.define_epsilon()
         self.define_critic()
         ### summaries
-        batch_size = tf.cast(tf.shape(self.total_recerrs)[0], tf.float32)
-        summary_loss = tf.summary.scalar("/autoencoder/loss", self.autoencoder_loss / batch_size / self.n_scales)
+        batch_size = tf.cast(tf.shape(self.total_recerrs_4_frames)[0], tf.float32)
+        summary_loss_4_frames = tf.summary.scalar("/autoencoder/loss_4_frames", self.autoencoder_loss_4_frames / batch_size / self.n_scales)
+        if self.turn_2_frames_vergence_on:
+            summary_loss_2_frames = tf.summary.scalar("/autoencoder/loss_2_frames", self.autoencoder_loss_2_frames / batch_size / self.n_scales)
         summary_per_joint = [tf.summary.scalar("/critic/{}".format(jn), self.critic_loss[jn] / batch_size) for jn in ["tilt", "pan", "vergence"]]
         summary_critic_loss = tf.summary.scalar("/critic/loss", self.critic_loss_all_levels_all_joints / batch_size / self.n_scales / self.n_joints)
         # summary_scale_critic_loss = [tf.summary.scalar("/critic/{}_ratio_{}".format(jn, r), self.scale_loss[jn][r]) for jn, r in product(["tilt", "pan", "vergence"], self.ratios)]
@@ -443,15 +535,21 @@ class Worker:
             for ratio in self.ratios:
                 summaries.append(self.patch_summary[joint_name][ratio])
                 summaries.append(self.scale_summary[joint_name][ratio])
-        self.summary = tf.summary.merge(
-            [summary_loss, summary_critic_loss] + summary_per_joint + summary_images + summaries
-        )
+        summaries += summary_per_joint
+        summaries += summary_images
+        summaries += [summary_loss_4_frames, summary_critic_loss]
+        if self.turn_2_frames_vergence_on:
+            summaries += [summary_loss_2_frames]
+        self.summary = tf.summary.merge(summaries)
         ### Ops
         self.update_count = tf.Variable(0, dtype=tf.int32)
         self.update_count_inc = self.update_count.assign_add(1, use_locking=True)
         self.optimizer_autoencoder = tf.train.AdamOptimizer(self.model_lr, use_locking=True)
         self.optimizer_critic = tf.train.AdamOptimizer(self.critic_lr, use_locking=True)
-        self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss)
+        if self.turn_2_frames_vergence_on:
+            self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss_4_frames + self.autoencoder_loss_2_frames)
+        else:
+            self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss_4_frames)
         self.train_op_critic = self.optimizer_critic.minimize(self.critic_loss_all_levels_all_joints)
         self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic])
 
@@ -508,26 +606,36 @@ class Worker:
         """
         # import imageio  # temporary
         fetches = {
-            "total_reconstruction_error": self.total_recerrs,
+            "total_recerrs_4_frames": self.total_recerrs_4_frames,
+            "scale_recerrs_4_frames": self.scale_recerrs_4_frames,
             "critic_value": self.critic_values,
             "action_index": self.greedy_actions_indices
         }
+        if self.turn_2_frames_vergence_on:
+            fetches["total_recerrs_2_frames"] = self.total_recerrs_2_frames
+            fetches["scale_recerrs_2_frames"] = self.scale_recerrs_2_frames
         while not self.test_cases_queue.empty():
             try:
                 test_case = self.test_cases_queue.get(timeout=1)
             except queue.Empty:
                 print("{} found an empty queue".format(self.name))
                 break
-            test_data = np.zeros(test_case["n_iterations"], dtype=dttest_data)
-            vergence_init = to_angle(test_case["object_distance"]) - test_case["vergence_error"]
+            test_data = np.zeros(test_case["n_iterations"], dtype=self.testing_data_type)
+            # vergence_error = eyes_vergence - correct_vergence
+            # eyes_vergence = correct_vergence + vergence_error
+            vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+            # speed_error = eyes_speed - correct_speed
+            # eyes_speed = 0
+            # correct_speed = screen_speed = - speed_error
+            screen_speed = -test_case["speed_error"]
             ### initialize environment, step simulation, take pictures, move screen
             self.environment.robot.reset_speed()
             self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
             self.environment.screen.set_texture(test_case["stimulus"])
             self.environment.screen.set_trajectory(
                 test_case["object_distance"],
-                test_case["speed_error"][0],
-                test_case["speed_error"][1],
+                screen_speed[0],
+                screen_speed[1],
                 preinit=True)
             self.environment.step()
             left_image_before, right_image_before = self.environment.robot.get_vision()
@@ -535,10 +643,12 @@ class Worker:
             for i in range(test_case["n_iterations"]):
                 self.environment.step()
                 left_image, right_image = self.environment.robot.get_vision()
-                feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
-                # filename = '/tmp/test_inputs/{:03d}_{:03d}_{}.png'.format(test_case["stimulus"], int(test_case["speed_error"][1] * 2 * 320 / 90), self.task_index)  # temporary
-                # print("saving {}".format(filename))  # temporary
-                # imageio.imwrite(filename, (left_image_before * 255).astype(np.uint8))  # temporary
+                feed_dict = {
+                    self.left_cam: [left_image],
+                    self.left_cam_before: [left_image_before],
+                    self.right_cam: [right_image],
+                    self.right_cam_before: [right_image_before]
+                }
                 data = self.sess.run(fetches, feed_dict=feed_dict)
                 action_value = self.actions_indices_to_values(data["action_index"])
                 test_data[i]["action_index"] = [data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]
@@ -546,56 +656,33 @@ class Worker:
                 test_data[i]["critic_value_tilt"] = data["critic_value"]["tilt"]
                 test_data[i]["critic_value_pan"] = data["critic_value"]["pan"]
                 test_data[i]["critic_value_vergence"] = data["critic_value"]["vergence"]
-                test_data[i]["total_reconstruction_error"] = data["total_reconstruction_error"]
                 test_data[i]["eye_position"] = self.environment.robot.position
                 test_data[i]["eye_speed"] = self.environment.robot.speed
-                test_data[i]["speed_error"] = test_data[i]["eye_speed"] - test_case["speed_error"]
+                test_data[i]["speed_error"] = test_data[i]["eye_speed"] - screen_speed
                 test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
+                test_data[i]["total_recerrs_4_frames"] = data["total_recerrs_4_frames"]
+                test_data[i]["scale_recerrs_4_frames"] = [data["scale_recerrs_4_frames"][ratio] for ratio in self.ratios]
+                if self.turn_2_frames_vergence_on:
+                    test_data[i]["total_recerrs_2_frames"] = data["total_recerrs_2_frames"]
+                    test_data[i]["scale_recerrs_2_frames"] = [data["scale_recerrs_2_frames"][ratio] for ratio in self.ratios]
                 if i + 1 != test_case["n_iterations"]:
                     self.environment.robot.set_action(action_value, joint_limit_type="none")
                 left_image_before = left_image
+                right_image_before = right_image
             self.testing_data_queue.put((test_case, test_data))
         self.pipe.send("{} no more test cases, going IDLE".format(self.name))
-
-    def playback_one_episode(self, greedy=False):
-        """Performs one episode of fake training (for visualizing a trained agent in the environment, see playback.py)
-        The greedy boolean specifies wether the greedy or sampled policy should be used
-        """
-        fetches = (self.greedy_actions_indices if greedy else self.sampled_actions_indices), self.rewards__partial
-        self.environment.episode_reset(preinit=True)
-        left_image, right_image = self.environment.robot.get_vision()
-        self.environment.step()  # moves the screen
-        feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image]}
-        _, reconstruction_error = self.sess.run(fetches, feed_dict)
-        total_reward__partial = float(reconstruction_error)
-        mean = 0
-        for iteration in range(self.episode_length):
-            left_image_before, right_image_before = left_image, right_image
-            left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
-            ret, total_reward__partial_new = self.sess.run(fetches, feed_dict)
-            reward = total_reward__partial - total_reward__partial_new[0]
-            total_reward__partial = total_reward__partial_new[0]
-            object_distance = self.environment.screen.distance
-            vergence_error = self.environment.robot.get_vergence_error(object_distance)
-            mean += np.abs(vergence_error)
-            print("vergence error: {:.4f}\treward: {:.4f}     {}".format(vergence_error, reward, self.actions_indices_to_values(ret)[-1]), end="\n")
-            self.environment.robot.set_action(self.actions_indices_to_values(ret))
-            self.environment.step()
-        print("mean abs vergence error: {:.4f}".format(mean / self.episode_length))
 
     def get_episode(self):
         """Get the training data that the RL algorithm needs,
         and stores training infos in a buffer that must be flushed regularly
         See the help guide about data formats
         """
-        # TODO: playback / produce_video / test_chunk are probably messed up now...
-        # TODO: issue with data formats (dtypes) eg shape of patch value in cascade and sampled_action -> one per joint
-
         episode_number, epsilon = self.sess.run([self.episode_count_inc, self.epsilon])
         log_data = episode_number % 10 == 0
         if episode_number % 100 == 0:
             print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
+        if episode_number % 1000 == 0:
+            print("{} simulation time: {:.2f}sec/episode\ttraining time: {:.2f}sec/episode".format(self.name, self._tsimulation / self._n_time_measurements, self._ttrain / self._n_time_measurements))
 
         self.environment.episode_reset(preinit=True)
         self.environment.step()  # moves the screen
@@ -603,29 +690,32 @@ class Worker:
         for iteration in range(self.episode_length + 1):  # + 1 for the additional / sacrificial iteration
             self.environment.step()  # moves the screen
             left_image, right_image = self.environment.robot.get_vision()
-            feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
+            feed_dict = {
+                self.left_cam: [left_image],
+                self.left_cam_before: [left_image_before],
+                self.right_cam: [right_image],
+                self.right_cam_before: [right_image_before]
+            }
             data = self.sess.run(self.training_behaviour_fetches, feed_dict)
             self.fill_behaviour_data(iteration, data)  # missing return targets
             if log_data:
-                self.fill_training_data(iteration, data)    # missing return targets, eyes position / speeds / object position / speed etc
+                self.fill_training_data(iteration, data)
             self.fill_recerrs_data(iteration, data)    # for computation of return targets
             self.environment.robot.set_action(self.to_action(data))
             left_image_before = left_image
+            right_image_before = right_image
 
         ### COMPUTE TARGET RETURN  --> for every joint / every level / every ratio
         for joint_name in ["tilt", "pan", "vergence"]:
             feed_dict[self.picked_actions[joint_name]] = data["sampled_actions_indices"][joint_name]
         patch_start, scale_start, all_start = self.sess.run([self.patch_values_picked_actions, self.scale_values_picked_actions, self.critic_values_picked_actions], feed_dict=feed_dict)
 
-        for joint_name in ["tilt", "pan", "vergence"]:
-            if joint_name in ["vergence"]:  # left right encoder
-                encoder_index = 0
-            elif joint_name in ["tilt", "pan"]:  # temporal encoder
-                encoder_index = 0  # set to 1 in the future
+        for joint_index, joint_name in enumerate(["tilt", "pan", "vergence"]):
+            encoder_index = 1 if self.turn_2_frames_vergence_on and joint_name == "vergence" else 0
 
             patch_rewards = self._recerrs_data["patch"][:-1, encoder_index] - self._recerrs_data["patch"][1:, encoder_index]  # (10 nscales npatches npatches)
             scale_rewards = self._recerrs_data["scale"][:-1, encoder_index] - self._recerrs_data["scale"][1:, encoder_index]
-            all_rewards = self._recerrs_data["all"][:-1, encoder_index] - self._recerrs_data["all"][1:, encoder_index]
+            all_rewards = self._recerrs_data["total"][:-1, encoder_index] - self._recerrs_data["total"][1:, encoder_index]
 
             patch_bootstrap = np.array([patch_start[joint_name][ratio][0] for ratio in self.ratios])
             scale_bootstrap = np.array([scale_start[joint_name][ratio][0] for ratio in self.ratios])
@@ -635,31 +725,44 @@ class Worker:
             scale_returns = to_return(scale_rewards, start=scale_bootstrap, discount_factor=self.discount_factor)
             all_returns = to_return(all_rewards, start=all_bootstrap, discount_factor=self.discount_factor)
 
-            self._behaviour_data["patch_target_return"][:-1, encoder_index] = patch_returns
-            self._behaviour_data["scale_target_return"][:-1, encoder_index] = scale_returns
-            self._behaviour_data["all_target_return"][:-1, encoder_index] = all_returns
+            self._behaviour_data["patch_target_return"][:-1, joint_index] = patch_returns
+            self._behaviour_data["scale_target_return"][:-1, joint_index] = scale_returns
+            self._behaviour_data["total_target_return"][:-1, joint_index] = all_returns
 
         # store in buffer
         self.buffer.incorporate(self._behaviour_data[:-1])
         if log_data:
+            self._training_data["episode_number"] = episode_number
             encoder_index = 0
             self._training_data["patch_rewards"][:-1, encoder_index] = patch_rewards
             self._training_data["patch_target_return"][:-1, encoder_index] = patch_returns
             self._training_data["scale_rewards"][:-1, encoder_index] = scale_rewards
             self._training_data["scale_target_return"][:-1, encoder_index] = scale_returns
             self._training_data["all_rewards"][:-1, encoder_index] = all_rewards
-            self._training_data["all_target_return"][:-1, encoder_index] = all_returns
-            self._training_data["episode_number"] = episode_number
+            self._training_data["total_target_return"][:-1, encoder_index] = all_returns
+            if self.turn_2_frames_vergence_on:
+                encoder_index = 1  # 1 stands for 2_frames encoder
+                self._training_data["patch_rewards"][:-1, encoder_index] = patch_rewards
+                self._training_data["patch_target_return"][:-1, encoder_index] = patch_returns
+                self._training_data["scale_rewards"][:-1, encoder_index] = scale_rewards
+                self._training_data["scale_target_return"][:-1, encoder_index] = scale_returns
+                self._training_data["all_rewards"][:-1, encoder_index] = all_rewards
+                self._training_data["total_target_return"][:-1, encoder_index] = all_returns
             self.register_training_data()
         return episode_number
 
     def fill_training_data(self, iteration, data):
         self._training_data[iteration]["sampled_actions_indices"] = [data["sampled_actions_indices"][joint_name] for joint_name in ["tilt", "pan", "vergence"]]
         self._training_data[iteration]["greedy_actions_indices"] = [data["greedy_actions_indices"][joint_name] for joint_name in ["tilt", "pan", "vergence"]]
-        encoder_index = 0
-        self._training_data[iteration]["patch_recerrs"][encoder_index] = [data["patch_recerrs"][r] for r in self.ratios]
-        self._training_data[iteration]["scale_recerrs"][encoder_index] = [data["scale_recerrs"][r] for r in self.ratios]
-        self._training_data[iteration]["all_recerrs"][encoder_index] = data["all_recerrs"]
+        encoder_index = 0  # 0 stands for 4_frames encoder
+        self._training_data[iteration]["patch_recerrs"][encoder_index] = [data["patch_recerrs_4_frames"][r] for r in self.ratios]
+        self._training_data[iteration]["scale_recerrs"][encoder_index] = [data["scale_recerrs_4_frames"][r] for r in self.ratios]
+        self._training_data[iteration]["total_recerrs"][encoder_index] = data["total_recerrs_4_frames"]
+        if self.turn_2_frames_vergence_on:
+            encoder_index = 1  # 1 stands for 2_frames encoder
+            self._training_data[iteration]["patch_recerrs"][encoder_index] = [data["patch_recerrs_2_frames"][r] for r in self.ratios]
+            self._training_data[iteration]["scale_recerrs"][encoder_index] = [data["scale_recerrs_2_frames"][r] for r in self.ratios]
+            self._training_data[iteration]["total_recerrs"][encoder_index] = data["total_recerrs_2_frames"]
         self._training_data[iteration]["object_distance"] = self.environment.screen.distance
         self._training_data[iteration]["object_speed"] = self.environment.screen.tilt_pan_speed
         self._training_data[iteration]["eyes_position"] = self.environment.robot.position
@@ -670,15 +773,20 @@ class Worker:
         # object_position = self.environment.screen.position
 
     def fill_behaviour_data(self, iteration, data):
-        encoder_index = 0
-        self._behaviour_data[iteration]["scales_inp"][encoder_index] = np.concatenate([data["scales_inp"][r] for r in self.ratios], axis=0)
+        self._behaviour_data[iteration]["scales_inp"] = np.concatenate([data["scales_inp_4_frames"][r] for r in self.ratios], axis=0)
         self._behaviour_data[iteration]["sampled_actions_indices"] = [data["sampled_actions_indices"][joint_name] for joint_name in ["tilt", "pan", "vergence"]]
         # self._behaviour_data[iteration]["target_return"] = ???  # filled later, data not available yet
 
     def fill_recerrs_data(self, iteration, data):
-        self._recerrs_data[iteration]["patch"] = [data["patch_recerrs"][r][0] for r in self.ratios]
-        self._recerrs_data[iteration]["scale"] = [data["scale_recerrs"][r][0] for r in self.ratios]
-        self._recerrs_data[iteration]["all"] = data["all_recerrs"][0]
+        encoder_index = 0  # 0 stands for 4_frames encoder
+        self._recerrs_data[iteration]["patch"][encoder_index] = [data["patch_recerrs_4_frames"][r][0] for r in self.ratios]
+        self._recerrs_data[iteration]["scale"][encoder_index] = [data["scale_recerrs_4_frames"][r][0] for r in self.ratios]
+        self._recerrs_data[iteration]["total"][encoder_index] = data["total_recerrs_4_frames"][0]
+        if self.turn_2_frames_vergence_on:
+            encoder_index = 1  # 1 stands for 2_frames encoder
+            self._recerrs_data[iteration]["patch"][encoder_index] = [data["patch_recerrs_2_frames"][r][0] for r in self.ratios]
+            self._recerrs_data[iteration]["scale"][encoder_index] = [data["scale_recerrs_2_frames"][r][0] for r in self.ratios]
+            self._recerrs_data[iteration]["total"][encoder_index] = data["total_recerrs_2_frames"][0]
 
     # def define_actions_sets(self, tilt=True, pan=True, vergence=True):
     def define_actions_sets(self):
@@ -717,15 +825,16 @@ class Worker:
     def train_one_episode(self):
         """Updates the networks weights according to the transitions states and actions"""
         data = self.buffer.random_batch
-        # TODO: multiple encoders (time / binocular) will require changes here
-        feed_dict = {self.scales_inp[r]: data["scales_inp"][:, 0, i] for i, r in enumerate(self.ratios)}
+        feed_dict = {self.scales_inp_4_frames[r]: data["scales_inp"][:, i] for i, r in enumerate(self.ratios)}
+        if self.turn_2_frames_vergence_on:
+            feed_dict_2 = {self.scales_inp_2_frames[r]: data["scales_inp"][:, i, ..., 6:] for i, r in enumerate(self.ratios)}
+            feed_dict.update(feed_dict_2)
         for i, joint_name in enumerate(["tilt", "pan", "vergence"]):
             feed_dict[self.picked_actions[joint_name]] = data["sampled_actions_indices"][:, i]
             for j, ratio in enumerate(self.ratios):
-                encoder_index = 0
-                feed_dict[self.patch_returns[joint_name][ratio]] = data["patch_target_return"][:, encoder_index, j]
-                feed_dict[self.scale_returns[joint_name][ratio]] = data["scale_target_return"][:, encoder_index, j]
-            feed_dict[self.returns[joint_name]] = data["all_target_return"][:, encoder_index]
+                feed_dict[self.patch_returns[joint_name][ratio]] = data["patch_target_return"][:, i, j]
+                feed_dict[self.scale_returns[joint_name][ratio]] = data["scale_target_return"][:, i, j]
+            feed_dict[self.returns[joint_name]] = data["total_target_return"][:, i]
         ret = self.sess.run(self.update_fetches, feed_dict=feed_dict)
         if ret["episode_count"] % 100 == 0:
             # print("{} sending summary to collector ({})".format(self.name, ret["episode_count"]))
@@ -771,10 +880,16 @@ class Worker:
                 for iteration in range(self.episode_length + 1):  # + 1 for the additional / sacrificial iteration
                     self.environment.step()  # moves the screen
                     left_image, right_image = self.environment.robot.get_vision()
-                    feed_dict = {self.left_cam: [left_image], self.left_cam_before: [left_image_before]}
+                    feed_dict = {
+                        self.left_cam: [left_image],
+                        self.left_cam_before: [left_image_before],
+                        self.right_cam: [right_image],
+                        self.right_cam_before: [right_image_before]
+                    }
                     action = self.sess.run(actions_indices, feed_dict)
                     self.environment.robot.set_action(self.actions_indices_to_values(action))
                     left_image_before = left_image
+                    right_image_before = right_image
                     object_distance = self.environment.screen.distance
                     vergence_error = self.environment.robot.get_vergence_error(object_distance)
                     eyes_speed = self.environment.robot.speed
