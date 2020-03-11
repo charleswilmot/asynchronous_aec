@@ -233,6 +233,7 @@ class Experiment:
             self.worker_conf.episode_length,
             self.worker_conf.buffer_size,
             self.worker_conf.update_factor,
+            self.worker_conf.batch_size,
             self.worker0_display
             )
         worker.wait_for_variables_initialization()
