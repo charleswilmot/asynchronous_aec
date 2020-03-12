@@ -1,6 +1,6 @@
 import numpy as np
 import time
-from asynchronous import make_experiment_path
+from train import make_experiment_path
 import os
 import logging
 
