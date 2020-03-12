@@ -1,4 +1,4 @@
-tensorflow==1.5
+tensorflow==1.15.2
 pypng
 filelock
 imageio
