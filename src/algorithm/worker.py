@@ -94,6 +94,7 @@ class Worker:
         self.define_actions_sets()
         self._tsimulation = 0.0
         self._ttrain = 0.0
+        self._trun = 0.0
         self._n_time_measurements = 0
 
         self.update_fetches = {
@@ -682,7 +683,7 @@ class Worker:
         if episode_number % 100 == 0:
             print("{} simulating episode {}\tepsilon {:.2f}".format(self.name, episode_number, epsilon))
         if episode_number % 1000 == 0:
-            print("{} simulation time: {:.2f}sec/episode\ttraining time: {:.2f}sec/episode".format(self.name, self._tsimulation / self._n_time_measurements, self._ttrain / self._n_time_measurements))
+            print("{} simulation time: {:.2f}sec/episode\tof which {:.2f} is forward pass\ttraining time: {:.2f}sec/episode".format(self.name, self._tsimulation / self._n_time_measurements, self._trun / self._n_time_measurements, self._ttrain / self._n_time_measurements))
 
         self.environment.episode_reset(preinit=True)
         self.environment.step()  # moves the screen
@@ -696,7 +697,10 @@ class Worker:
                 self.right_cam: [right_image],
                 self.right_cam_before: [right_image_before]
             }
+            trun_before = time.time()
             data = self.sess.run(self.training_behaviour_fetches, feed_dict)
+            trun_after = time.time()
+            self._trun += trun_after - trun_before
             self.fill_behaviour_data(iteration, data)  # missing return targets
             if log_data:
                 self.fill_training_data(iteration, data)
