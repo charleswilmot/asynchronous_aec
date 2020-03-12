@@ -74,30 +74,30 @@ class ClusterQueue:
 
 
 # General parameters
-description = "Pan Tilt Diagonal"
+description = "profile_time"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 20, #40
-    "mem": 80000, #90_000
+    "mincpus": 46, #40
+    "mem": 90000, #90_000
     "description": description,
+    # "reservation": "triesch-shared"
 }
 
 # Define algorithm specs here
 algo_params = {
-    "n_episodes": 200000, #200_000
-    "flush_every": 10000,
-    "n_workers": 20, #40
+    "n_episodes": 600000, #200_000
+    "n_workers": 40, #40
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
-    "discount_factor": 0.5,
-    "update_factor": 10,
+    "discount_factor": 0.001,
     "episode_length": 10,
-    "epsilon": 0.2,
-    #"restore_from": "/home/jkling/asynchronous_aec/experiments/2020_02_06-23.19.07_mlr1.00e-04_clr1.00e-04__2_Frames_PanTilt_Only_w._Moving_Screen/checkpoints/00200071"
+    "epsilon": 0.05,
+    "batch_size": 200,
+    # "restore_from": "../experiments/2020_03_08-13.39.19_mlr1.00e-04_clr1.00e-04__checkpoint/checkpoints/00000010/"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
