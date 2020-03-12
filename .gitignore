@@ -100,6 +100,9 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
+# PyCharm project settings
+.idea
+
 # mkdocs documentation
 /site
 
@@ -108,3 +111,5 @@ venv.bak/
 
 /tmp/
 /experiments/
+/local_copies_of_aecgroup/
+/learning/
