@@ -1,6 +1,6 @@
 import tensorflow as tf
 from algorithm.replay_buffer import Buffer
-from environment.environment import Environment
+from algorithm.environment import Environment
 import tensorflow.contrib.layers as tl
 import numpy as np
 from algorithm.returns import to_return
