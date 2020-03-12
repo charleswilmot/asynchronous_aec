@@ -120,8 +120,6 @@ class Worker:
         self.behaviour_data_type = np.dtype([
             ("scales_inp", np.float32, (self.n_scales, self.crop_side_length, self.crop_side_length, 12)),
             ("sampled_actions_indices", np.int32, (self.n_joints)),
-            ("patch_target_return", np.float32, (self.n_joints, self.n_scales, n_patches, n_patches)),
-            ("scale_target_return", np.float32, (self.n_joints, self.n_scales)),
             ("total_target_return", np.float32, (self.n_joints,))
         ])
         self.training_data_type = np.dtype([
@@ -130,11 +128,7 @@ class Worker:
             ("patch_recerrs", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
             ("scale_recerrs", np.float32, (self.n_encoders, self.n_scales)),
             ("total_recerrs", np.float32, (self.n_encoders,)),
-            ("patch_rewards", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
-            ("scale_rewards", np.float32, (self.n_encoders, self.n_scales)),
             ("all_rewards", np.float32, (self.n_encoders,)),
-            ("patch_target_return", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
-            ("scale_target_return", np.float32, (self.n_encoders, self.n_scales)),
             ("total_target_return", np.float32, (self.n_encoders,)),
             ("object_distance", np.float32, ()),
             ("object_speed", np.float32, (2, )),
@@ -162,17 +156,12 @@ class Worker:
                 ("scale_recerrs_2_frames", (np.float32, self.n_scales))
             ]
         self.testing_data_type = np.dtype(testing_data_type_description)
-        self.levels_data_type = np.dtype([
-            ("patch", np.float32, (self.n_encoders, self.n_scales, n_patches, n_patches)),
-            ("scale", np.float32, (self.n_encoders, self.n_scales)),
-            ("total", np.float32, (self.n_encoders,))
-        ])
         self.buffer = Buffer(size=model_buffer_size, dtype=self.behaviour_data_type, batch_size=batch_size)
 
         # + 1 for the additional / sacrificial iteration
         self._behaviour_data = np.zeros(shape=self.episode_length + 1, dtype=self.behaviour_data_type)
         self._training_data = np.zeros(shape=self.episode_length + 1, dtype=self.training_data_type)  # passed to the logger
-        self._recerrs_data = np.zeros(shape=self.episode_length + 1, dtype=self.levels_data_type)
+        self._recerrs_data = np.zeros(shape=(self.episode_length + 1, self.n_encoders), dtype=np.float32)
 
         # Manage Data Logging
         self.saver = tf.train.Saver()
@@ -199,85 +188,89 @@ class Worker:
         except queue.Full:
             print("{} could not register training data. (Queue is full)")
 
-    def define_critic_patch(self, ratio, joint_name):
-        """Defines the critic at the level of the patches, for one scale, for one joint
-        """
-        if self.turn_2_frames_vergence_on and joint_name == "vergence":
-            inp = tf.stop_gradient(self.scale_latent_conv_2_frames[ratio])
-        else:
-            inp = tf.stop_gradient(self.scale_latent_conv_4_frames[ratio])
-        conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
-        patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
-        self.patch_values[joint_name][ratio] = patch_values  # patch_values  40, 7, 7, 9
-        self.patch_returns[joint_name][ratio] = tf.placeholder(shape=patch_values.get_shape()[:3], dtype=tf.float32, name="patch_return_{}_{}".format(joint_name, ratio))
-        actions = self.picked_actions[joint_name]
-        params = tf.transpose(patch_values, perm=[0, 3, 1, 2])  # params        40, 9, 7, 7
-        indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)  # 40, 2
-        self.patch_values_picked_actions[joint_name][ratio] = tf.gather_nd(params, indices)  # 40, 7, 7
-        losses = (self.patch_values_picked_actions[joint_name][ratio] - self.patch_returns[joint_name][ratio] * self.reward_scaling_factor) ** 2
-        self.patch_loss[joint_name][ratio] = tf.reduce_sum(tf.reduce_mean(losses, axis=[1, 2]))  # sum on batch dim, mean on the rest
-        # summaries
-        summaries = []
-        mean_abs_return = tf.reduce_mean(tf.abs(self.patch_returns[joint_name][ratio] * self.reward_scaling_factor))
-        summaries.append(tf.summary.scalar("/patch/{}/{}/mean_abs_return".format(joint_name, ratio), mean_abs_return))
-        mean, var = tf.nn.moments(tf.abs(self.patch_values_picked_actions[joint_name][ratio] - self.patch_returns[joint_name][ratio] * self.reward_scaling_factor), axes=[0, 1, 2])
-        summaries.append(tf.summary.scalar("/patch/{}/{}/mean_abs_distance".format(joint_name, ratio), mean))
-        summaries.append(tf.summary.scalar("/patch/{}/{}/std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
-        value_mean = tf.reduce_mean(self.patch_values_picked_actions[joint_name][ratio], axis=[1, 2])
-        return_mean = tf.reduce_mean(self.patch_returns[joint_name][ratio], axis=[1, 2])
-        mean, var = tf.nn.moments(tf.abs(value_mean - return_mean * self.reward_scaling_factor), axes=[0])
-        summaries.append(tf.summary.scalar("/patch/{}/{}/scale_mean_abs_distance".format(joint_name, ratio), mean))
-        summaries.append(tf.summary.scalar("/patch/{}/{}/scale_std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
-        self.patch_summary[joint_name][ratio] = tf.summary.merge(summaries)
+    # def define_critic_patch(self, ratio, joint_name):
+    #     """Defines the critic at the level of the patches, for one scale, for one joint
+    #     """
+    #     if self.turn_2_frames_vergence_on and joint_name == "vergence":
+    #         inp = tf.stop_gradient(self.scale_latent_conv_2_frames[ratio])
+    #     else:
+    #         inp = tf.stop_gradient(self.scale_latent_conv_4_frames[ratio])
+    #     conv1 = tl.conv2d(inp, 20, 1, 1, "valid", activation_fn=lrelu)
+    #     patch_values = tl.conv2d(conv1, self.n_actions_per_joint, 1, 1, "valid", activation_fn=None)
+    #     self.patch_values[joint_name][ratio] = patch_values  # patch_values  40, 7, 7, 9
+    #     self.patch_returns[joint_name][ratio] = tf.placeholder(shape=patch_values.get_shape()[:3], dtype=tf.float32, name="patch_return_{}_{}".format(joint_name, ratio))
+    #     actions = self.picked_actions[joint_name]
+    #     params = tf.transpose(patch_values, perm=[0, 3, 1, 2])  # params        40, 9, 7, 7
+    #     indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)  # 40, 2
+    #     self.patch_values_picked_actions[joint_name][ratio] = tf.gather_nd(params, indices)  # 40, 7, 7
+    #     losses = (self.patch_values_picked_actions[joint_name][ratio] - self.patch_returns[joint_name][ratio] * self.reward_scaling_factor) ** 2
+    #     self.patch_loss[joint_name][ratio] = tf.reduce_sum(tf.reduce_mean(losses, axis=[1, 2]))  # sum on batch dim, mean on the rest
+    #     # summaries
+    #     summaries = []
+    #     mean_abs_return = tf.reduce_mean(tf.abs(self.patch_returns[joint_name][ratio] * self.reward_scaling_factor))
+    #     summaries.append(tf.summary.scalar("/patch/{}/{}/mean_abs_return".format(joint_name, ratio), mean_abs_return))
+    #     mean, var = tf.nn.moments(tf.abs(self.patch_values_picked_actions[joint_name][ratio] - self.patch_returns[joint_name][ratio] * self.reward_scaling_factor), axes=[0, 1, 2])
+    #     summaries.append(tf.summary.scalar("/patch/{}/{}/mean_abs_distance".format(joint_name, ratio), mean))
+    #     summaries.append(tf.summary.scalar("/patch/{}/{}/std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
+    #     value_mean = tf.reduce_mean(self.patch_values_picked_actions[joint_name][ratio], axis=[1, 2])
+    #     return_mean = tf.reduce_mean(self.patch_returns[joint_name][ratio], axis=[1, 2])
+    #     mean, var = tf.nn.moments(tf.abs(value_mean - return_mean * self.reward_scaling_factor), axes=[0])
+    #     summaries.append(tf.summary.scalar("/patch/{}/{}/scale_mean_abs_distance".format(joint_name, ratio), mean))
+    #     summaries.append(tf.summary.scalar("/patch/{}/{}/scale_std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
+    #     self.patch_summary[joint_name][ratio] = tf.summary.merge(summaries)
 
-    def define_critic_scale(self, ratio, joint_name):
-        """Defines the critic at the level of one scale, for one joint
-        """
-        size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
-        if self.turn_2_frames_vergence_on and joint_name == "vergence":
-            inp = tf.stop_gradient(self.scale_latent_2_frames[ratio])
-        else:
-            inp = tf.stop_gradient(self.scale_latent_4_frames[ratio])
-        inp = tf.concat([
-            inp,
-            tf.stop_gradient(tf.reshape(self.patch_values[joint_name][ratio], (-1, size)))
-        ], axis=1)
-        # inp = self.scale_latent[ratio]
-        fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
-        fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
-        # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
-        # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
-        scale_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
-        self.scale_values[joint_name][ratio] = scale_values
-        self.scale_returns[joint_name][ratio] = tf.placeholder(shape=(None,), dtype=tf.float32, name="scale_return_{}_{}".format(joint_name, ratio))
-        actions = self.picked_actions[joint_name]
-        indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
-        self.scale_values_picked_actions[joint_name][ratio] = tf.gather_nd(scale_values, indices)
-        losses = (self.scale_values_picked_actions[joint_name][ratio] - self.scale_returns[joint_name][ratio] * self.reward_scaling_factor) ** 2
-        self.scale_loss[joint_name][ratio] = tf.reduce_sum(losses)
-        # summaries
-        summaries = []
-        mean_abs_return = tf.reduce_mean(tf.abs(self.scale_returns[joint_name][ratio] * self.reward_scaling_factor))
-        summaries.append(tf.summary.scalar("/scale/{}/{}/mean_abs_return".format(joint_name, ratio), mean_abs_return))
-        mean, var = tf.nn.moments(tf.abs(self.scale_values_picked_actions[joint_name][ratio] - self.scale_returns[joint_name][ratio] * self.reward_scaling_factor), axes=[0])
-        summaries.append(tf.summary.scalar("/scale/{}/{}/mean_abs_distance".format(joint_name, ratio), mean))
-        summaries.append(tf.summary.scalar("/scale/{}/{}/std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
-        self.scale_summary[joint_name][ratio] = tf.summary.merge(summaries)
+    # def define_critic_scale(self, ratio, joint_name):
+    #     """Defines the critic at the level of one scale, for one joint
+    #     """
+    #     size = np.prod(self.patch_values[joint_name][ratio].get_shape()[1:])
+    #     if self.turn_2_frames_vergence_on and joint_name == "vergence":
+    #         inp = tf.stop_gradient(self.scale_latent_2_frames[ratio])
+    #     else:
+    #         inp = tf.stop_gradient(self.scale_latent_4_frames[ratio])
+    #     inp = tf.concat([
+    #         inp,
+    #         tf.stop_gradient(tf.reshape(self.patch_values[joint_name][ratio], (-1, size)))
+    #     ], axis=1)
+    #     # inp = self.scale_latent[ratio]
+    #     fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+    #     fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
+    #     # fc3 = tl.fully_connected(fc2, 200, activation_fn=lrelu)
+    #     # fc4 = tl.fully_connected(fc3, 1, activation_fn=None)
+    #     scale_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
+    #     self.scale_values[joint_name][ratio] = scale_values
+    #     self.scale_returns[joint_name][ratio] = tf.placeholder(shape=(None,), dtype=tf.float32, name="scale_return_{}_{}".format(joint_name, ratio))
+    #     actions = self.picked_actions[joint_name]
+    #     indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
+    #     self.scale_values_picked_actions[joint_name][ratio] = tf.gather_nd(scale_values, indices)
+    #     losses = (self.scale_values_picked_actions[joint_name][ratio] - self.scale_returns[joint_name][ratio] * self.reward_scaling_factor) ** 2
+    #     self.scale_loss[joint_name][ratio] = tf.reduce_sum(losses)
+    #     # summaries
+    #     summaries = []
+    #     mean_abs_return = tf.reduce_mean(tf.abs(self.scale_returns[joint_name][ratio] * self.reward_scaling_factor))
+    #     summaries.append(tf.summary.scalar("/scale/{}/{}/mean_abs_return".format(joint_name, ratio), mean_abs_return))
+    #     mean, var = tf.nn.moments(tf.abs(self.scale_values_picked_actions[joint_name][ratio] - self.scale_returns[joint_name][ratio] * self.reward_scaling_factor), axes=[0])
+    #     summaries.append(tf.summary.scalar("/scale/{}/{}/mean_abs_distance".format(joint_name, ratio), mean))
+    #     summaries.append(tf.summary.scalar("/scale/{}/{}/std_abs_distance".format(joint_name, ratio), tf.sqrt(var)))
+    #     self.scale_summary[joint_name][ratio] = tf.summary.merge(summaries)
+
+    # self.patch_values[joint_name][ratio]
+    # self.patch_returns[joint_name][ratio]
+    # self.patch_values_picked_actions[joint_name][ratio]
+    # self.patch_loss[joint_name][ratio]
+    # self.patch_summary[joint_name][ratio]
+    # self.scale_values[joint_name][ratio]
+    # self.scale_returns[joint_name][ratio]
+    # self.scale_values_picked_actions[joint_name][ratio]
+    # self.scale_loss[joint_name][ratio]
+    # self.scale_summary[joint_name][ratio]
 
     def define_critic_joint(self, joint_name):
         """Defines the critic merging every scales, for one joint"""
         self.picked_actions[joint_name] = tf.placeholder(shape=(None,), dtype=tf.int32, name="picked_action_{}".format(joint_name))
-        for ratio in self.ratios:
-            self.define_critic_patch(ratio, joint_name)
-            self.define_critic_scale(ratio, joint_name)
         if self.turn_2_frames_vergence_on and joint_name == "vergence":
             inp = tf.stop_gradient(self.latent_2_frames)
         else:
             inp = tf.stop_gradient(self.latent_4_frames)
-        inp = tf.concat(
-            [inp] +
-            [tf.stop_gradient(self.scale_values[joint_name][r]) for r in self.ratios], axis=-1)
-        # inp = tf.stop_gradient(self.latent)
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
         fc2 = tl.fully_connected(fc1, 200, activation_fn=lrelu)
         critic_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
@@ -329,38 +322,19 @@ class Worker:
     def define_critic(self):
         """Defines the critics for each joints"""
         # done once for every joint
+
         self.picked_actions = {}
-        self.patch_values = {}
-        self.patch_returns = {}
-        self.patch_loss = {}
-        self.scale_values = {}
-        self.scale_returns = {}
-        self.scale_loss = {}
         self.critic_values = {}
         self.returns = {}
         self.critic_loss = {}
         self.critic_loss_all_levels = {}
         self.greedy_actions_indices = {}
         self.sampled_actions_indices = {}
-        self.patch_summary = {}
-        self.scale_summary = {}
         self.joint_summary = {}
-        self.patch_values_picked_actions = {}
-        self.scale_values_picked_actions = {}
         self.critic_values_picked_actions = {}
         self.critic_loss_all_levels_all_joints = 0
         for joint_name in ["tilt", "pan", "vergence"]:
             # done once per joint
-            self.patch_values[joint_name] = {}
-            self.patch_returns[joint_name] = {}
-            self.patch_loss[joint_name] = {}
-            self.scale_values[joint_name] = {}
-            self.scale_returns[joint_name] = {}
-            self.scale_loss[joint_name] = {}
-            self.patch_summary[joint_name] = {}
-            self.scale_summary[joint_name] = {}
-            self.patch_values_picked_actions[joint_name] = {}
-            self.scale_values_picked_actions[joint_name] = {}
             self.define_critic_joint(joint_name)
             self.critic_loss_all_levels_all_joints += self.critic_loss_all_levels[joint_name]
 
@@ -716,21 +690,9 @@ class Worker:
 
         for joint_index, joint_name in enumerate(["tilt", "pan", "vergence"]):
             encoder_index = 1 if self.turn_2_frames_vergence_on and joint_name == "vergence" else 0
-
-            patch_rewards = self._recerrs_data["patch"][:-1, encoder_index] - self._recerrs_data["patch"][1:, encoder_index]  # (10 nscales npatches npatches)
-            scale_rewards = self._recerrs_data["scale"][:-1, encoder_index] - self._recerrs_data["scale"][1:, encoder_index]
-            all_rewards = self._recerrs_data["total"][:-1, encoder_index] - self._recerrs_data["total"][1:, encoder_index]
-
-            patch_bootstrap = np.array([patch_start[joint_name][ratio][0] for ratio in self.ratios])
-            scale_bootstrap = np.array([scale_start[joint_name][ratio][0] for ratio in self.ratios])
+            all_rewards = self._recerrs_data[:-1, encoder_index] - self._recerrs_data[1:, encoder_index]
             all_bootstrap = all_start[joint_name][0]
-
-            patch_returns = to_return(patch_rewards, start=patch_bootstrap, discount_factor=self.discount_factor)
-            scale_returns = to_return(scale_rewards, start=scale_bootstrap, discount_factor=self.discount_factor)
             all_returns = to_return(all_rewards, start=all_bootstrap, discount_factor=self.discount_factor)
-
-            self._behaviour_data["patch_target_return"][:-1, joint_index] = patch_returns
-            self._behaviour_data["scale_target_return"][:-1, joint_index] = scale_returns
             self._behaviour_data["total_target_return"][:-1, joint_index] = all_returns
 
         # store in buffer
@@ -738,18 +700,10 @@ class Worker:
         if log_data:
             self._training_data["episode_number"] = episode_number
             encoder_index = 0
-            self._training_data["patch_rewards"][:-1, encoder_index] = patch_rewards
-            self._training_data["patch_target_return"][:-1, encoder_index] = patch_returns
-            self._training_data["scale_rewards"][:-1, encoder_index] = scale_rewards
-            self._training_data["scale_target_return"][:-1, encoder_index] = scale_returns
             self._training_data["all_rewards"][:-1, encoder_index] = all_rewards
             self._training_data["total_target_return"][:-1, encoder_index] = all_returns
             if self.turn_2_frames_vergence_on:
                 encoder_index = 1  # 1 stands for 2_frames encoder
-                self._training_data["patch_rewards"][:-1, encoder_index] = patch_rewards
-                self._training_data["patch_target_return"][:-1, encoder_index] = patch_returns
-                self._training_data["scale_rewards"][:-1, encoder_index] = scale_rewards
-                self._training_data["scale_target_return"][:-1, encoder_index] = scale_returns
                 self._training_data["all_rewards"][:-1, encoder_index] = all_rewards
                 self._training_data["total_target_return"][:-1, encoder_index] = all_returns
             self.register_training_data()
@@ -771,26 +725,17 @@ class Worker:
         self._training_data[iteration]["object_speed"] = self.environment.screen.tilt_pan_speed
         self._training_data[iteration]["eyes_position"] = self.environment.robot.position
         self._training_data[iteration]["eyes_speed"] = self.environment.robot.speed
-        # self._training_data[iteration]["episode_number"] = episode_number  # filled later
-        # self._training_data[iteration]["rewards"] = ???        # filled later, data not available yet
-        # self._training_data[iteration]["target_return"] = ???  # filled later, data not available yet
-        # object_position = self.environment.screen.position
 
     def fill_behaviour_data(self, iteration, data):
         self._behaviour_data[iteration]["scales_inp"] = np.concatenate([data["scales_inp_4_frames"][r] for r in self.ratios], axis=0)
         self._behaviour_data[iteration]["sampled_actions_indices"] = [data["sampled_actions_indices"][joint_name] for joint_name in ["tilt", "pan", "vergence"]]
-        # self._behaviour_data[iteration]["target_return"] = ???  # filled later, data not available yet
 
     def fill_recerrs_data(self, iteration, data):
         encoder_index = 0  # 0 stands for 4_frames encoder
-        self._recerrs_data[iteration]["patch"][encoder_index] = [data["patch_recerrs_4_frames"][r][0] for r in self.ratios]
-        self._recerrs_data[iteration]["scale"][encoder_index] = [data["scale_recerrs_4_frames"][r][0] for r in self.ratios]
-        self._recerrs_data[iteration]["total"][encoder_index] = data["total_recerrs_4_frames"][0]
+        self._recerrs_data[iteration, encoder_index] = data["total_recerrs_4_frames"][0]
         if self.turn_2_frames_vergence_on:
             encoder_index = 1  # 1 stands for 2_frames encoder
-            self._recerrs_data[iteration]["patch"][encoder_index] = [data["patch_recerrs_2_frames"][r][0] for r in self.ratios]
-            self._recerrs_data[iteration]["scale"][encoder_index] = [data["scale_recerrs_2_frames"][r][0] for r in self.ratios]
-            self._recerrs_data[iteration]["total"][encoder_index] = data["total_recerrs_2_frames"][0]
+            self._recerrs_data[iteration, encoder_index] = data["total_recerrs_2_frames"][0]
 
     # def define_actions_sets(self, tilt=True, pan=True, vergence=True):
     def define_actions_sets(self):
