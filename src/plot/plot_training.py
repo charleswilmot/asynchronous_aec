@@ -37,7 +37,7 @@ def plot_joint_errors(fig, data, win_size=500, stddev=200):
 
 def plot(data):
     with FigureManager("joint_errors.png") as fig:
-        plot_joint_errors(fig, data, 500, 200)
+        plot_joint_errors(fig, data, 50, 20)
 
 
 

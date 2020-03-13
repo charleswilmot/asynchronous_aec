@@ -74,7 +74,7 @@ class ClusterQueue:
 
 
 # General parameters
-description = "profile_time"
+description = "replicate_without_patch_and_scale_DQN"
 
 # Define cluster specs here
 cluster_params = {
@@ -88,8 +88,8 @@ cluster_params = {
 
 # Define algorithm specs here
 algo_params = {
-    "n_episodes": 600000, #200_000
-    "n_workers": 40, #40
+    "n_episodes": 400000,
+    "n_workers": 46,
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
@@ -98,7 +98,6 @@ algo_params = {
     "episode_length": 10,
     "epsilon": 0.05,
     "batch_size": 200,
-    # "restore_from": "../experiments/2020_03_08-13.39.19_mlr1.00e-04_clr1.00e-04__checkpoint/checkpoints/00000010/"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
