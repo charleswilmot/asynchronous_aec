@@ -138,6 +138,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-rsf', '--reward-scaling-factor',
+        type=float,
+        default=100,
+        help="Reward scaling by a constant."
+    )
+
+    parser.add_argument(
         '-nv', '--no-video',
         action='store_true',
         help="Don't record a video if present"

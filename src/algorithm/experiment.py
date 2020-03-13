@@ -230,6 +230,7 @@ class Experiment:
             self.worker_conf.discount_factor,
             self.worker_conf.epsilon,
             self.worker_conf.epsilon_decay,
+            self.worker_conf.reward_scaling_factor,
             self.worker_conf.episode_length,
             self.worker_conf.buffer_size,
             self.worker_conf.update_factor,

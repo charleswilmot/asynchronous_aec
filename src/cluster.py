@@ -93,6 +93,7 @@ algo_params = {
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
+    "reward_scaling_factor": 200,
     "discount_factor": 0.001,
     "episode_length": 10,
     "epsilon": 0.05,
