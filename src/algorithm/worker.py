@@ -301,7 +301,7 @@ class Worker:
         # summaries
         summaries = []
         mean_abs_return = tf.reduce_mean(tf.abs(self.returns[joint_name] * self.reward_scaling_factor))
-        summaries.append(tf.summary.scalar("/joint/{}/mean_abs_return".format(joint_name, ratio), mean_abs_return))
+        summaries.append(tf.summary.scalar("/joint/{}/mean_abs_return".format(joint_name), mean_abs_return))
         mean, var = tf.nn.moments(tf.abs(self.critic_values_picked_actions[joint_name] - self.returns[joint_name] * self.reward_scaling_factor), axes=[0])
         summaries.append(tf.summary.scalar("/joint/{}/mean_abs_distance".format(joint_name), mean))
         summaries.append(tf.summary.scalar("/joint/{}/std_abs_distance".format(joint_name), tf.sqrt(var)))
