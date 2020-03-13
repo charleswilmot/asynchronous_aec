@@ -74,7 +74,7 @@ class ClusterQueue:
 
 
 # General parameters
-description = "profile_time"
+description = "replicate_patch_only"
 
 # Define cluster specs here
 cluster_params = {
@@ -88,13 +88,14 @@ cluster_params = {
 
 # Define algorithm specs here
 algo_params = {
-    "n_episodes": 600000, #200_000
-    "n_workers": 40, #40
+    "n_episodes": 400000, #200_000
+    "n_workers": 46, #40
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
     "discount_factor": 0.001,
     "episode_length": 10,
+    "reward_scaling_factor": 100,
     "epsilon": 0.05,
     "batch_size": 200,
     # "restore_from": "../experiments/2020_03_08-13.39.19_mlr1.00e-04_clr1.00e-04__checkpoint/checkpoints/00000010/"
