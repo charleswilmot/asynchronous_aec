@@ -55,7 +55,7 @@ class Worker:
     def __init__(self, cluster, task_index, pipe, summary_queue, training_data_queue, testing_data_queue, test_cases_queue,
                  logdir, simulator_port,
                  model_lr, critic_lr, discount_factor,
-                 epsilon_init, epsilon_decay,
+                 epsilon_init, epsilon_decay, reward_scaling_factor,
                  episode_length, model_buffer_size, update_factor, batch_size,
                  worker0_display=False):
         self.task_index = task_index
@@ -82,7 +82,7 @@ class Worker:
         self.test_cases_queue = test_cases_queue
         self.logdir = logdir
         self.n_actions_per_joint = 9
-        self.reward_scaling_factor = 100
+        self.reward_scaling_factor = reward_scaling_factor
         # todo: see Conf object: put ratios in the Conf object
         self.ratios = list(range(1, 4)) # Last number is excluded: list(range(1, 3)) -> [1, 2]
         #self.ratios = [1, 2, 3]
