@@ -89,8 +89,8 @@ def collect_summaries(queue, path):
             if t2 - last_time_printing > 120:
                 total = total_time_getting + total_time_writing
                 # print("SUMMARY COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
-                    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
-                )
+                #    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                #)
                 last_time_printing = t2
 
 
@@ -117,8 +117,8 @@ def collect_training_data(queue, path):
             if t2 - last_time_printing > 120:
                 total = total_time_getting + total_time_writing
                 # print("TRAINING DATA COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
-                    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
-                )
+                #    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                #)
                 last_time_printing = t2
 
 
