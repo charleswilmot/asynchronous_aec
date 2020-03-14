@@ -1,5 +1,6 @@
 import pickle
 import numpy as np
+import os
 
 
 def read_training_data(path):
@@ -11,50 +12,64 @@ def read_training_data(path):
     return data
 
 
+def filter_data(data, stimulus=None, object_distances=None, vergence_errors=None, speed_errors=None, n_iterations=None):
+    test_cases = np.array([a for a, b in data])
+    condition = np.ones_like(test_cases, dtype=np.bool)
+    if stimulus is not None:
+        condition = np.logical_and(condition, np.isin(test_cases["stimulus"], stimulus))
+    if object_distances is not None:
+        condition = np.logical_and(condition, np.isin(test_cases["object_distance"], object_distances))
+    if vergence_errors is not None:
+        condition = np.logical_and(condition, np.isin(test_cases["vergence_error"], vergence_errors))
+    if speed_errors is not None:
+        speed_errors = np.array(speed_errors, dtype=np.float32).view(dtype='f,f')
+        speed_errors2 = np.ascontiguousarray(test_cases["speed_error"].reshape((-1,))).view(dtype='f,f')
+        condition = np.logical_and(condition, np.isin(speed_errors2, speed_errors))
+    if n_iterations is not None:
+        condition = np.logical_and(condition, np.isin(test_cases["n_iterations"], n_iterations))
+    return [data_point for data_point, pred in zip(data, condition) if pred]
+
+
+def read_all_abs_testing_performance(path):
+    at = 10
+    results = {"pan": {}, "tilt": {}, "vergence": {}}
+    for filename in os.listdir(path):
+        print("reading {}".format(filename))
+        splits = filename.split("_")
+        iteration = int(splits[0])
+        test_conf = "_".join(splits[1:])
+        with open("../test_conf/{}".format(test_conf), 'rb') as f:
+            lists_of_param_anchors = pickle.load(f)["test_descriptions"]
+        vergence, pan, tilt = False, False, False
+        if "vergence_trajectory" in lists_of_param_anchors:
+            vergence = True
+        if "pan_speed_trajectory" in lists_of_param_anchors:
+            pan = True
+        if "tilt_speed_trajectory" in lists_of_param_anchors:
+            tilt = True
+        if pan or tilt or vergence:
+            with open(os.path.join(path, filename), 'rb') as f:
+                test_data = pickle.load(f)
+            if pan:
+                data = filter_data(test_data, **lists_of_param_anchors["pan_speed_trajectory"])
+                data = [b for a, b in data]
+                errors = np.array(data)["speed_error"][:, at, 1]
+                results["pan"][iteration] = np.mean(np.abs(errors))
+            if tilt:
+                data = filter_data(test_data, **lists_of_param_anchors["tilt_speed_trajectory"])
+                data = [b for a, b in data]
+                errors = np.array(data)["speed_error"][:, at, 0]
+                results["tilt"][iteration] = np.mean(np.abs(errors))
+            if vergence:
+                data = filter_data(test_data, **lists_of_param_anchors["vergence_trajectory"])
+                data = [b for a, b in data]
+                errors = np.array(data)["vergence_error"][:, at]
+                results["vergence"][iteration] = np.mean(np.abs(errors))
+    for key in ["pan", "tilt", "vergence"]:
+        # transforms dict into pair of sorted lists
+        results[key] = np.array(list(zip(*list(sorted(results[key].items(), key=lambda x: x[0])))))
+    return results
+
+
 if __name__ == "__main__":
-    fields = [
-        'all_rewards',
-        'total_recerrs',
-        'eyes_speed',
-        'object_speed',
-        'greedy_actions_indices',
-        'sampled_actions_indices',
-        'episode_number',
-        'patch_target_return',
-        'total_target_return',
-        'eyes_position',
-        'object_distance',
-        'scale_rewards',
-        'patch_recerrs',
-        'scale_recerrs',
-        'scale_target_return',
-        'patch_rewards'
-    ]
-
-    import matplotlib.pyplot as plt
-
-    # data = read_training_data("../../experiments/2020_02_25-09.40.18_mlr1.00e-04_clr1.00e-04__debug/data/training.data")
-    data = read_training_data("../../experiments/2020_02_27-15.42.15_mlr1.00e-04_clr1.00e-04__pan_tilt_geometric_action_set_uniform_screen_speed_0_to_1.125_after_fix_buffer_size_2000_crop_size_32_filter_8/data/training.data")
-
-    speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
-    speed_errors_pan = data["eyes_speed"][:, -1, 1] - data["object_speed"][:, -1, 1]
-
-    win_size = 500
-    stddev = 200
-    kernel = np.exp(-(np.arange(-win_size / 2, win_size / 2) ** 2) / stddev ** 2)
-    kernel /= np.sum(kernel)
-    a = np.convolve(np.abs(speed_errors_tilt), kernel, mode="valid")
-    b = np.convolve(np.abs(speed_errors_pan), kernel, mode="valid")
-    x = np.arange(win_size / 2, win_size / 2 + a.shape[0]) * data["eyes_speed"].shape[1]
-    fig = plt.figure(dpi=200)
-    ax = fig.add_subplot(111)
-    ax.plot(x, a, label="tilt")
-    ax.plot(x, b, label="pan")
-    ax.axhline(90 / 320, color="k", linestyle="--")
-    ax.set_ylim([-0.1, 1.6])
-    ax.legend()
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("Speed error in deg/it")
-    ax.set_title("Speed error wrt train time")
-    # fig.savefig("/tmp/pan_tilt.png")
-    plt.show()
+    results = read_all_abs_testing_performance("../../experiments/2020_03_12-15.45.43_mlr1.00e-04_clr1.00e-04__replicate_without_patch_and_scale_DQN/test_data/")
