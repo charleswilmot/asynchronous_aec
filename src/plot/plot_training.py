@@ -1,6 +1,6 @@
 import os
 import argparse
-from read_data import read_training_data
+from read_data import read_training_data, read_all_abs_testing_performance
 import numpy as np
 import matplotlib.pyplot as plt
 from helper.utils import vergence_error
@@ -9,7 +9,7 @@ from helper.utils import vergence_error
 TRAINING_DATA_RECORD_FREQ = 10
 
 
-def plot_joint_errors(fig, data, win_size=500, stddev=200):
+def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     ax = fig.add_subplot(111)
     # speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
     # speed_errors = data["eyes_speed"][:, -1] - data["object_speed"][:, -1]
@@ -24,9 +24,15 @@ def plot_joint_errors(fig, data, win_size=500, stddev=200):
     b = np.convolve(np.abs(speed_errors_pan), kernel, mode="valid")
     c = np.convolve(np.abs(vergence_errors), kernel, mode="valid")
     x = np.arange(win_size / 2, a.shape[0] + win_size / 2) * TRAINING_DATA_RECORD_FREQ
-    ax.plot(x, a / 90 * 320, label="tilt")
-    ax.plot(x, b / 90 * 320, label="pan")
-    ax.plot(x, c / 90 * 320, label="vergence")
+    line, = ax.plot(x, a / 90 * 320, label="tilt")
+    test_x, test_y = abs_errors["tilt"]
+    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
+    line, = ax.plot(x, b / 90 * 320, label="pan")
+    test_x, test_y = abs_errors["pan"]
+    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
+    line, = ax.plot(x, c / 90 * 320, label="vergence")
+    test_x, test_y = abs_errors["vergence"]
+    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
     ax.axhline(1, color="k", linestyle="--")
     ax.legend()
     ax.set_xlabel("Episode")
@@ -35,9 +41,9 @@ def plot_joint_errors(fig, data, win_size=500, stddev=200):
 
 
 
-def plot(data):
+def plot(data, abs_errors):
     with FigureManager("joint_errors.png") as fig:
-        plot_joint_errors(fig, data, 500, 200)
+        plot_joint_errors(fig, data, abs_errors, 500, 200)
 
 
 
@@ -69,6 +75,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     train_plots_dir = os.path.dirname(os.path.abspath(args.path)) + "/../train_plots/"
     data = read_training_data(args.path)
+    test_data_path, _ = os.path.split(args.path)
+    test_data_path, _ = os.path.split(test_data_path)
+    test_data_path += '/test_data/'
+    abs_errors = read_all_abs_testing_performance(test_data_path)
     n_episodes = data.shape[0]
     plots_dir = train_plots_dir + "{:08d}".format(n_episodes) + "/"
     if args.save:
@@ -94,4 +104,4 @@ if __name__ == "__main__":
             else:
                 plt.show()
 
-    plot(data)
+    plot(data, abs_errors)

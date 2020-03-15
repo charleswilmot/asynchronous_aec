@@ -6,6 +6,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from read_data import filter_data
 
 
 cdict = {'red':   ((0.0,  1.0, 1.0),
@@ -35,24 +36,6 @@ def get_new_ax(fig, n_subplots, subplot_index, method="square"):
         return fig.add_subplot(1, n_subplots, subplot_index + 1)
     if method == "vertical":
         return fig.add_subplot(n_subplots, 1, subplot_index + 1)
-
-
-def filter_data(data, stimulus=None, object_distances=None, vergence_errors=None, speed_errors=None, n_iterations=None):
-    test_cases = np.array([a for a, b in data])
-    condition = np.ones_like(test_cases, dtype=np.bool)
-    if stimulus is not None:
-        condition = np.logical_and(condition, np.isin(test_cases["stimulus"], stimulus))
-    if object_distances is not None:
-        condition = np.logical_and(condition, np.isin(test_cases["object_distance"], object_distances))
-    if vergence_errors is not None:
-        condition = np.logical_and(condition, np.isin(test_cases["vergence_error"], vergence_errors))
-    if speed_errors is not None:
-        speed_errors = np.array(speed_errors, dtype=np.float32).view(dtype='f,f')
-        speed_errors2 = np.ascontiguousarray(test_cases["speed_error"].reshape((-1,))).view(dtype='f,f')
-        condition = np.logical_and(condition, np.isin(speed_errors2, speed_errors))
-    if n_iterations is not None:
-        condition = np.logical_and(condition, np.isin(test_cases["n_iterations"], n_iterations))
-    return [data_point for data_point, pred in zip(data, condition) if pred]
 
 
 def plot_tilt_path_all(fig, anchors, data):
