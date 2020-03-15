@@ -25,14 +25,17 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     c = np.convolve(np.abs(vergence_errors), kernel, mode="valid")
     x = np.arange(win_size / 2, a.shape[0] + win_size / 2) * TRAINING_DATA_RECORD_FREQ
     line, = ax.plot(x, a / 90 * 320, label="tilt")
-    test_x, test_y = abs_errors["tilt"]
-    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
+    if len(abs_errors["tilt"]):
+        test_x, test_y = abs_errors["tilt"]
+        ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
     line, = ax.plot(x, b / 90 * 320, label="pan")
-    test_x, test_y = abs_errors["pan"]
-    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
+    if len(abs_errors["pan"]):
+        test_x, test_y = abs_errors["pan"]
+        ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
     line, = ax.plot(x, c / 90 * 320, label="vergence")
-    test_x, test_y = abs_errors["vergence"]
-    ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
+    if len(abs_errors["vergence"]):
+        test_x, test_y = abs_errors["vergence"]
+        ax.plot(test_x, test_y / 90 * 320, color=line.get_color(), linestyle="--")
     ax.axhline(1, color="k", linestyle="--")
     ax.legend()
     ax.set_xlabel("Episode")
