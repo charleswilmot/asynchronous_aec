@@ -125,6 +125,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-rm', '--restore-model-from',
+        type=str,
+        default="none",
+        help="Checkpoint to restore from (encoder / decoder only)"
+    )
+
+    parser.add_argument(
         '-mlr', '--model-learning-rate',
         type=float,
         default=default_mlr,
@@ -189,7 +196,9 @@ if __name__ == "__main__":
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
-            exp.restore_model(args.restore_from)
+            exp.restore_all(args.restore_from)
+        if args.restore_model_from != "none":
+            exp.restore_model(args.restore_model_from)
         if args.tensorboard:
             exp.start_tensorboard()
         last_test = 0

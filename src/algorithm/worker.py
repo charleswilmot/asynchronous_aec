@@ -64,7 +64,7 @@ class Worker:
         self.device = tf.train.replica_device_setter(worker_device=self.name, cluster=cluster)
         ### copy worker_conf.
         self.discount_factor = worker_conf.discount_factor
-        self.epsilon_init = worker_conf.epsilon_init
+        self.epsilon_init = worker_conf.epsilon
         self.epsilon_decay = worker_conf.epsilon_decay
         self.episode_length = worker_conf.episode_length
         self.update_factor = worker_conf.update_factor
@@ -86,6 +86,8 @@ class Worker:
         self.turn_2_frames_vergence_on = worker_conf.turn_2_frames_vergence_on
         self.n_encoders = 2 if self.turn_2_frames_vergence_on else 1
         self.n_joints = 3
+        self.episode_count = tf.Variable(0)
+        self.episode_count_inc = self.episode_count.assign_add(1)
         self.define_networks()
         ### some profiling stuff
         self._tsimulation = 0.0
@@ -172,6 +174,8 @@ class Worker:
 
         # Manage Data Logging
         self.saver = tf.train.Saver()
+        model_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="model")
+        self.model_saver = tf.train.Saver(var_list=model_variables)
         self.sess = tf.Session(target=self.server.target)
         # todo: variable initialization can be done in the experiment constructor, would be more elegent
         if task_index == 0 and len(self.sess.run(tf.report_uninitialized_variables())) > 0:  # todo: can be done in Experiment
@@ -512,9 +516,10 @@ class Worker:
         ], axis=-1)  # (None, 240, 320, 12)
         ### graph definitions:
         self.define_inps()
-        self.define_4_frames_autoencoder()
-        if self.turn_2_frames_vergence_on:
-            self.define_2_frames_autoencoder()
+        with tf.variable_scope("model"):
+            self.define_4_frames_autoencoder()
+            if self.turn_2_frames_vergence_on:
+                self.define_2_frames_autoencoder()
         self.define_epsilon()
         self.define_critic()
         ### summaries
@@ -591,6 +596,13 @@ class Worker:
         self.pipe.send(self.sess.run(self.episode_count))
 
     def restore_model(self, path):
+        """Restores from a checkpoint
+        The Experiment class calls this methode on the worker 0 only
+        """
+        self.model_saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
+        self.pipe.send("{} variables restored from {}".format(self.name, path))
+
+    def restore_all(self, path):
         """Restores from a checkpoint
         The Experiment class calls this methode on the worker 0 only
         """
@@ -792,10 +804,10 @@ class Worker:
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
         At the moment, pan and tilt are comprised only of zeros"""
-        self.n_actions_per_joint = len(actions_set_vergence)
-        self.actions_set_tilt = actions_set_tilt
-        self.actions_set_pan = actions_set_pan
-        self.actions_set_vergence = actions_set_vergence
+        self.n_actions_per_joint = len(actions_set_values_vergence)
+        self.actions_set_tilt = actions_set_values_tilt
+        self.actions_set_pan = actions_set_values_pan
+        self.actions_set_vergence = actions_set_values_vergence
 
     def actions_indices_to_values(self, indices_dict):
         return [self.actions_set_tilt[indices_dict["tilt"][0]],
