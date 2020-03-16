@@ -195,7 +195,8 @@ class Worker:
         else:
             inp = tf.stop_gradient(self.latent_4_frames)
         fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
-        critic_values = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=None)
+        fc2 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+        critic_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
         self.critic_values[joint_name] = critic_values
         self.returns[joint_name] = tf.placeholder(shape=critic_values.get_shape()[:1], dtype=tf.float32, name="return_{}".format(joint_name))
         actions = self.picked_actions[joint_name]
@@ -221,7 +222,6 @@ class Worker:
     def define_critic(self):
         """Defines the critics for each joints"""
         # done once for every joint
-
         self.picked_actions = {}
         self.critic_values = {}
         self.returns = {}

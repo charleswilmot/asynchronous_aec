@@ -74,30 +74,31 @@ class ClusterQueue:
 
 
 # General parameters
-description = "replicate_without_patch_and_scale_DQN"
+description = "replicate_without_patch_and_scale_DQN_critic_dim_200_200"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 46, #40
+    "mincpus": 56, #40
     "mem": 90000, #90_000
     "description": description,
-    # "reservation": "triesch-shared"
+    "reservation": "triesch-shared"
 }
 
 # Define algorithm specs here
 algo_params = {
-    "n_episodes": 400000,
-    "n_workers": 46,
+    "n_episodes": 400000, #200_000
+    "n_workers": 48, #40
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
-    "reward_scaling_factor": 200,
     "discount_factor": 0.001,
     "episode_length": 10,
+    "reward_scaling_factor": 200,
     "epsilon": 0.05,
     "batch_size": 200,
+    # "restore_from": "../experiments/2020_03_08-13.39.19_mlr1.00e-04_clr1.00e-04__checkpoint/checkpoints/00000010/"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)

@@ -37,6 +37,7 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     ax.legend()
     ax.set_xlabel("Episode")
     ax.set_ylabel("Speed error in pixels/it")
+    ax.set_ylim([-0.2, 8])
     ax.set_title("Speed error wrt train time")
 
 
