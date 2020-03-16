@@ -36,7 +36,6 @@ class RandomScreen(SquaredPlane):
         else:
             super().set_texture(self.textures_list[index])
 
-    # def episode_reset(self, preinit=False, tilt=True, pan=True):
     def episode_reset(self, preinit=False):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
         self.speed = np.random.uniform(rad(0.0), rad(1.125))

@@ -68,6 +68,28 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-ra', '--ratios',
+        type=int,
+        nargs="+",
+        help="Downscaling ratios.",
+        default=[1, 2, 3]
+    )
+
+    parser.add_argument(
+        '-b', '--buffer-size',
+        type=int,
+        help="Size of the replay buffer.",
+        default=2000
+    )
+
+    parser.add_argument(
+        '-4f', '--turn-2-frames-vergence-off',
+        help="Self expl.",
+        action="store_true",
+        default=False
+    )
+
+    parser.add_argument(
         '-ne', '--n-episodes',
         type=int,
         help="Number of episodes to be simulated.",

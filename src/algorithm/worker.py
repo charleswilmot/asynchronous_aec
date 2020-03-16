@@ -6,7 +6,7 @@ import numpy as np
 from algorithm.returns import to_return
 import time
 import os
-from helper.utils import to_angle
+from helper.utils import to_angle, actions_set_values_tilt, actions_set_values_pan, actions_set_values_vergence
 from imageio import get_writer
 from PIL import ImageDraw, Image #, ImageFont
 import queue
@@ -52,12 +52,8 @@ class Worker:
     It first defines a model according to the model's parameters, then goes to the idle mode, and waits for instructions
     todo: see the Conf object: pass a Conf instance to the Worker constructor.
     """
-    def __init__(self, cluster, task_index, pipe, summary_queue, training_data_queue, testing_data_queue, test_cases_queue,
-                 logdir, simulator_port,
-                 model_lr, critic_lr, discount_factor,
-                 epsilon_init, epsilon_decay, reward_scaling_factor,
-                 episode_length, model_buffer_size, update_factor, batch_size,
-                 worker0_display=False):
+    def __init__(self, cluster, task_index, pipe_and_queues, logdir, simulator_port, worker_conf, worker0_display=False):
+        ### configuration of distributed TF
         self.task_index = task_index
         self.cluster = cluster
         self._n_workers = self.cluster.num_tasks("worker") - 1
@@ -66,32 +62,32 @@ class Worker:
         task_index_str = task_index_str + " " * (3 - len(task_index_str))
         self.name = "/job:worker/task:{}".format(task_index_str)
         self.device = tf.train.replica_device_setter(worker_device=self.name, cluster=cluster)
-        self.episode_count = tf.Variable(0)
-        self.episode_count_inc = self.episode_count.assign_add(1)
-        self.discount_factor = discount_factor
-        self.epsilon_init = epsilon_init
-        self.epsilon_decay = epsilon_decay
-        self.episode_length = episode_length
-        self.update_factor = update_factor
-        self.model_lr = model_lr
-        self.critic_lr = critic_lr
-        self.pipe = pipe
-        self.summary_queue = summary_queue
-        self.training_data_queue = training_data_queue
-        self.testing_data_queue = testing_data_queue
-        self.test_cases_queue = test_cases_queue
+        ### copy worker_conf.
+        self.discount_factor = worker_conf.discount_factor
+        self.epsilon_init = worker_conf.epsilon_init
+        self.epsilon_decay = worker_conf.epsilon_decay
+        self.episode_length = worker_conf.episode_length
+        self.update_factor = worker_conf.update_factor
+        self.model_lr = worker_conf.mlr
+        self.critic_lr = worker_conf.clr
+        self.reward_scaling_factor = worker_conf.reward_scaling_factor
+        self.buffer_size = worker_conf.buffer_size
+        self.batch_size = worker_conf.batch_size
+        ### communication to server
+        self.pipe = pipe_and_queues["pipe"]
+        self.summary_queue = pipe_and_queues["summary_queue"]
+        self.training_data_queue = pipe_and_queues["training_data_queue"]
+        self.testing_data_queue = pipe_and_queues["testing_data_queue"]
+        self.test_cases_queue = pipe_and_queues["test_cases_queue"]
         self.logdir = logdir
-        self.n_actions_per_joint = 9
-        self.reward_scaling_factor = reward_scaling_factor
-        # todo: see Conf object: put ratios in the Conf object
-        self.ratios = list(range(1, 4)) # Last number is excluded: list(range(1, 3)) -> [1, 2]
-        #self.ratios = [1, 2, 3]
+        self.define_actions_sets()
+        self.ratios = worker_conf.ratios
         self.n_scales = len(self.ratios)
-        self.turn_2_frames_vergence_on = True
+        self.turn_2_frames_vergence_on = worker_conf.turn_2_frames_vergence_on
         self.n_encoders = 2 if self.turn_2_frames_vergence_on else 1
         self.n_joints = 3
         self.define_networks()
-        self.define_actions_sets()
+        ### some profiling stuff
         self._tsimulation = 0.0
         self._ttrain = 0.0
         self._trun = 0.0
@@ -167,7 +163,7 @@ class Worker:
             ("scale", np.float32, (self.n_encoders, self.n_scales)),
             ("total", np.float32, (self.n_encoders,))
         ])
-        self.buffer = Buffer(size=model_buffer_size, dtype=self.behaviour_data_type, batch_size=batch_size)
+        self.buffer = Buffer(size=self.buffer_size, dtype=self.behaviour_data_type, batch_size=self.batch_size)
 
         # + 1 for the additional / sacrificial iteration
         self._behaviour_data = np.zeros(shape=self.episode_length + 1, dtype=self.behaviour_data_type)
@@ -796,41 +792,20 @@ class Worker:
     def define_actions_sets(self):
         """Defines the pan/tilt/vergence action sets
         At the moment, pan and tilt are comprised only of zeros"""
-        n = self.n_actions_per_joint // 2
-        # tilt
-        # self.action_set_tilt = np.zeros(self.n_actions_per_joint)
-        half_pixel_in_angle = 90 / 320 / 2
-        mini = half_pixel_in_angle
-        maxi = half_pixel_in_angle * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        self.action_set_tilt = np.concatenate([negative, [0], positive])
-        # pan
-        # self.action_set_pan = np.zeros(self.n_actions_per_joint)
-        half_pixel_in_angle = 90 / 320 / 2
-        mini = half_pixel_in_angle
-        maxi = half_pixel_in_angle * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        self.action_set_pan = np.concatenate([negative, [0], positive])
-        # vergence
-        # self.action_set_vergence = np.zeros(self.n_actions_per_joint)
-        half_pixel_in_angle = 90 / 320 / 2
-        mini = half_pixel_in_angle
-        maxi = half_pixel_in_angle * 2 ** (n - 1)
-        positive = np.logspace(np.log2(mini), np.log2(maxi), n, base=2)
-        negative = -positive[::-1]
-        self.action_set_vergence = np.concatenate([negative, [0], positive])
+        self.n_actions_per_joint = len(actions_set_vergence)
+        self.actions_set_tilt = actions_set_tilt
+        self.actions_set_pan = actions_set_pan
+        self.actions_set_vergence = actions_set_vergence
 
     def actions_indices_to_values(self, indices_dict):
-        return [self.action_set_tilt[indices_dict["tilt"][0]],
-                self.action_set_pan[indices_dict["pan"][0]],
-                self.action_set_vergence[indices_dict["vergence"][0]]]
+        return [self.actions_set_tilt[indices_dict["tilt"][0]],
+                self.actions_set_pan[indices_dict["pan"][0]],
+                self.actions_set_vergence[indices_dict["vergence"][0]]]
 
     def to_action(self, data):
-        return [self.action_set_tilt[data["sampled_actions_indices"]["tilt"][0]],
-                self.action_set_pan[data["sampled_actions_indices"]["pan"][0]],
-                self.action_set_vergence[data["sampled_actions_indices"]["vergence"][0]]]
+        return [self.actions_set_tilt[data["sampled_actions_indices"]["tilt"][0]],
+                self.actions_set_pan[data["sampled_actions_indices"]["pan"][0]],
+                self.actions_set_vergence[data["sampled_actions_indices"]["vergence"][0]]]
 
     def train_one_episode(self):
         """Updates the networks weights according to the transitions states and actions"""

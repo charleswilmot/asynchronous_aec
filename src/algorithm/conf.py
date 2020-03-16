@@ -12,5 +12,7 @@ class Conf:
         self.discount_factor = args.discount_factor
         self.episode_length = args.episode_length
         self.update_factor = args.update_factor
-        self.buffer_size = 2000
+        self.buffer_size = args.buffer_size
         self.batch_size = args.batch_size
+        self.ratios = args.ratios
+        self.turn_2_frames_vergence_on = not args.turn_2_frames_vergence_off
