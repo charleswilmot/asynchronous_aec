@@ -89,7 +89,7 @@ def collect_summaries(queue, path):
             if t2 - last_time_printing > 120:
                 total = total_time_getting + total_time_writing
                 # print("SUMMARY COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
-                #    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                #     100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
                 # )
                 last_time_printing = t2
 
@@ -117,7 +117,7 @@ def collect_training_data(queue, path):
             if t2 - last_time_printing > 120:
                 total = total_time_getting + total_time_writing
                 # print("TRAINING DATA COLLECTOR: {:.2f}% getting, {:.2f}% writing. Size: {}".format(
-                #    100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
+                #     100 * total_time_getting / total, 100 * total_time_writing / total, queue.qsize())
                 # )
                 last_time_printing = t2
 
@@ -200,43 +200,14 @@ class Experiment:
 
     def worker_func(self, task_index):
         np.random.seed(task_index)
-        ### CONF
-        # self.mlr, self.clr, self.alr = args.model_learning_rate, args.critic_learning_rate, args.actor_learning_rate
-        # self.entropy_reg = args.entropy_reg
-        # self.entropy_reg_decay = args.entropy_reg_decay
-        # self.discount_factor = 0
-        # self.episode_length = args.episode_length
-        # self.update_factor = args.update_factor
-        # self.buffer_size = 20
-        ### WORKER INIT
-        # model_lr, critic_lr, actor_lr,
-        # discount_factor, entropy_coef, entropy_coef_decay,
-        # episode_length,
-        # model_buffer_size,
-        # update_factor,
-        # worker0_display=False
-        worker = Worker(
-            self.cluster,
-            task_index,
-            self.there_pipes[task_index],
-            self.summary_queue,
-            self.training_data_queue,
-            self.testing_data_queue,
-            self.test_cases_queue,
-            self.logdir,
-            self.ports[task_index],
-            self.worker_conf.mlr,
-            self.worker_conf.clr,
-            self.worker_conf.discount_factor,
-            self.worker_conf.epsilon,
-            self.worker_conf.epsilon_decay,
-            self.worker_conf.reward_scaling_factor,
-            self.worker_conf.episode_length,
-            self.worker_conf.buffer_size,
-            self.worker_conf.update_factor,
-            self.worker_conf.batch_size,
-            self.worker0_display
-            )
+        pipe_and_queues = {
+            "pipe": self.there_pipes[task_index],
+            "summary_queue": self.summary_queue,
+            "training_data_queue": self.training_data_queue,
+            "testing_data_queue": self.testing_data_queue,
+            "test_cases_queue": self.test_cases_queue
+        }
+        worker = Worker(self.cluster, task_index, pipe_and_queues, self.logdir, self.ports[task_index], self.worker_conf, self.worker0_display)
         worker.wait_for_variables_initialization()
         worker()
 

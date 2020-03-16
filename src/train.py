@@ -68,6 +68,28 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-ra', '--ratios',
+        type=int,
+        nargs="+",
+        help="Downscaling ratios.",
+        default=[1, 2, 3]
+    )
+
+    parser.add_argument(
+        '-b', '--buffer-size',
+        type=int,
+        help="Size of the replay buffer.",
+        default=2000
+    )
+
+    parser.add_argument(
+        '-4f', '--turn-2-frames-vergence-off',
+        help="Self expl.",
+        action="store_true",
+        default=False
+    )
+
+    parser.add_argument(
         '-ne', '--n-episodes',
         type=int,
         help="Number of episodes to be simulated.",
@@ -100,6 +122,13 @@ if __name__ == "__main__":
         type=str,
         default="none",
         help="Checkpoint to restore from."
+    )
+
+    parser.add_argument(
+        '-rm', '--restore-model-from',
+        type=str,
+        default="none",
+        help="Checkpoint to restore from (encoder / decoder only)"
     )
 
     parser.add_argument(
@@ -167,7 +196,9 @@ if __name__ == "__main__":
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
         if args.restore_from != "none":
-            exp.restore_model(args.restore_from)
+            exp.restore_all(args.restore_from)
+        if args.restore_model_from != "none":
+            exp.restore_model(args.restore_model_from)
         if args.tensorboard:
             exp.start_tensorboard()
         last_test = 0
