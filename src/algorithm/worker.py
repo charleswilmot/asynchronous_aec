@@ -393,9 +393,9 @@ class Worker:
         ### graph definitions:
         self.define_inps()
         with tf.variable_scope("model"):
-            self.define_4_frames_autoencoder()
+            self.define_4_frames_autoencoder(filter_size=8, stride=4)
             if self.turn_2_frames_vergence_on:
-                self.define_2_frames_autoencoder()
+                self.define_2_frames_autoencoder(filter_size=8, stride=4)
         self.define_epsilon()
         self.define_critic()
         ### summaries
