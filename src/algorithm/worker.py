@@ -429,7 +429,7 @@ class Worker:
         else:
             self.train_op_autoencoder = self.optimizer_autoencoder.minimize(self.autoencoder_loss_4_frames)
         self.train_op_critic = self.optimizer_critic.minimize(sum(self.critic_loss.values()))
-        self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic])
+        self.train_op = tf.group([self.train_op_autoencoder, self.train_op_critic] + tf.get_collection(tf.GraphKeys.UPDATE_OPS))
 
     def wait_for_variables_initialization(self):
         while len(self.sess.run(tf.report_uninitialized_variables())) > 0:
