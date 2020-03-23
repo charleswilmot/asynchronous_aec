@@ -14,5 +14,6 @@ class Conf:
         self.update_factor = args.update_factor
         self.buffer_size = args.buffer_size
         self.batch_size = args.batch_size
+        self.batch_norm_decay = args.batch_norm_decay
         self.ratios = args.ratios
         self.turn_2_frames_vergence_on = not args.turn_2_frames_vergence_off

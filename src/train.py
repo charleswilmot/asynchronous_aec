@@ -167,6 +167,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-bnd', '--batch-norm-decay',
+        type=float,
+        default=0.99,
+        help="Decay the batch normalization estimators."
+    )
+
+    parser.add_argument(
         '-rsf', '--reward-scaling-factor',
         type=float,
         default=100,

@@ -73,6 +73,7 @@ class Worker:
         self.reward_scaling_factor = worker_conf.reward_scaling_factor
         self.buffer_size = worker_conf.buffer_size
         self.batch_size = worker_conf.batch_size
+        self.batch_norm_decay = worker_conf.batch_norm_decay
         ### communication to server
         self.pipe = pipe_and_queues["pipe"]
         self.summary_queue = pipe_and_queues["summary_queue"]
@@ -88,6 +89,7 @@ class Worker:
         self.n_joints = 3
         self.episode_count = tf.Variable(0)
         self.episode_count_inc = self.episode_count.assign_add(1)
+        self.is_training = tf.placeholder_with_default(False, shape=())
         self.define_networks()
         ### some profiling stuff
         self._tsimulation = 0.0
@@ -200,8 +202,10 @@ class Worker:
             inp = tf.stop_gradient(self.latent_2_frames)
         else:
             inp = tf.stop_gradient(self.latent_4_frames)
-        fc1 = tl.fully_connected(inp, 200, activation_fn=lrelu)
-        fc2 = tl.fully_connected(inp, 200, activation_fn=lrelu)
+        fc1 = tl.fully_connected(inp, 200)
+        fc1 = tl.batch_norm(fc1, is_training=self.is_training, trainable=True, updates_collections=tf.GraphKeys.UPDATE_OPS, decay=self.batch_norm_decay, activation_fn=lrelu)
+        fc2 = tl.fully_connected(fc1, 200)
+        fc2 = tl.batch_norm(fc2, is_training=self.is_training, trainable=True, updates_collections=tf.GraphKeys.UPDATE_OPS, decay=self.batch_norm_decay, activation_fn=lrelu)
         critic_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
         self.critic_values[joint_name] = critic_values
         self.returns[joint_name] = tf.placeholder(shape=critic_values.get_shape()[:1], dtype=tf.float32, name="return_{}".format(joint_name))
@@ -669,6 +673,7 @@ class Worker:
         """Updates the networks weights according to the transitions states and actions"""
         data = self.buffer.random_batch
         feed_dict = {self.scales_inp_4_frames[r]: data["scales_inp"][:, i] for i, r in enumerate(self.ratios)}
+        feed_dict[self.is_training] = True
         if self.turn_2_frames_vergence_on:
             feed_dict_2 = {self.scales_inp_2_frames[r]: data["scales_inp"][:, i, ..., 6:] for i, r in enumerate(self.ratios)}
             feed_dict.update(feed_dict_2)

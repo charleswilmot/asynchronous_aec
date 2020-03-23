@@ -74,16 +74,16 @@ class ClusterQueue:
 
 
 # General parameters
-description = "pan_tilt_vergence_regular_2_frames_reward_scaling_factor_200_net_dim_200_200_after_fix_typo_stride_8_no_gradient_stop"
+description = "pan_tilt_vergence_2_frames_reward_scaling_factor_200_net_dim_200_200_after_fix_typo_batch_norm_0.99"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 46, #40
+    "mincpus": 56, #40
     "mem": 90000, #90_000
     "description": description,
-    # "reservation": "triesch-shared"
+    "reservation": "triesch-shared"
 }
 
 # Define algorithm specs here
