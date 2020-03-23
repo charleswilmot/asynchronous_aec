@@ -187,6 +187,44 @@ def plot_recerr_wrt_vergence_error_ax(ax, anchors, data, turn_2_frames_vergence_
     ax.set_ylim(ylim)
 
 
+def plot_critic_accuracy_vergence(fig, anchors, data, stimulus=0, at_error=0):
+    ax = fig.add_subplot(111)
+    plot_critic_accuracy_vergence_ax(ax, anchors, data, stimulus=stimulus, at_error=at_error)
+
+
+def plot_critic_accuracy_vergence_ax(ax, anchors, data, turn_2_frames_vergence_on=True,
+                                          set_title=True, set_ylabel=True,
+                                          reward_scaling_factor=100, stimulus=0, at_error=0):
+    total_recerrs = "total_recerrs_2_frames" if turn_2_frames_vergence_on else "total_recerrs_4_frames"
+    joint_index = 2
+    data = filter_data(data, **anchors)
+    test_cases = np.array([a for a, b in data])
+    data = np.array([b for a, b in data])
+    actions_in_pixels = np.array([-8, -4, -2, -1, 0, 1, 2, 4, 8]) / 2
+    one_pixel = 90 / 320
+    n_actions = len(actions_in_pixels)
+    # x axis: action
+    # y axis: recerr and critic val
+    # text indicating which stimulus, which error
+    # vertical line showing the error on the x axis
+    where = np.where(test_cases["stimulus"] == stimulus)
+    data = data[where][:, 0]
+    rewards = []
+    critic_values = []
+    where = np.where(np.abs(data["vergence_error"] / one_pixel - at_error) < 1e-2)
+    baseline_reconstructiuon_error = data[total_recerrs][where]
+    critic_values = data["critic_value_vergence"][where][0]
+    for action in actions_in_pixels:
+        where = np.where(np.abs(data["vergence_error"] / one_pixel + action - at_error) < 1e-2)
+        reconstruction_error = data[total_recerrs][where]
+        rewards.append((baseline_reconstructiuon_error - reconstruction_error) * reward_scaling_factor)
+    ax.plot(actions_in_pixels, rewards, label="reward")
+    ax.plot(actions_in_pixels, critic_values, label="critic")
+    ax.set_xlabel("Action (in pixel)")
+    ax.set_ylabel("Reward / Return")
+    ax.legend()
+
+
 def plot_recerr_wrt_speed_error_per_scale(fig, anchors, data, pan_or_tilt="pan"):
     ax = fig.add_subplot(111)
     plot_recerr_wrt_speed_error_per_scale_ax(ax, anchors, data, pan_or_tilt=pan_or_tilt)
@@ -519,6 +557,11 @@ def all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan", per_sti
 
 def all_wrt_vergence_error(lists_of_param_anchors, data):
     anchors = lists_of_param_anchors["wrt_vergence_error"]
+
+    for stimulus in anchors["stimulus"]:
+        with FigureManager("vergence_critic_accuracy_stimulus_{}.png".format(stimulus)) as fig:
+            plot_critic_accuracy_vergence(fig, anchors, data, stimulus=stimulus)
+
     with FigureManager("vergence_policy.png") as fig:
         plot_policy_vergence(fig, anchors, data)
 
