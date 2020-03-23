@@ -41,7 +41,6 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     ax.set_title("Speed error wrt train time")
 
 
-
 def plot(data, abs_errors):
     with FigureManager("joint_errors.png") as fig:
         plot_joint_errors(fig, data, abs_errors, 500, 200)

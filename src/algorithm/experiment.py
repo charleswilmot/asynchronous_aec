@@ -270,6 +270,8 @@ class Experiment:
             print(pipe.recv())  # make sure all workers are done
         # get the current iteration...
         current_episode_count = self.get_current_episode_count()
+        if current_episode_count == 0:
+            current_episode_count = np.random.randint(0, 100000000)
         # store the data
         path = self.testdatadir if outpath is None else outpath
         test_conf_basename = os.path.basename(test_conf_path)
@@ -277,6 +279,7 @@ class Experiment:
         path = path + "/{}_{}.pkl".format(current_episode_count, test_conf_name)
         with open(path, "wb")as f:
             pickle.dump(res, f)
+        print("EXPERIMENT: saved testing data under {}".format(path))
 
     def playback(self, n_episodes, greedy=False):
         for p in self.here_pipes:

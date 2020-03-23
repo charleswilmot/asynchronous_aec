@@ -65,7 +65,7 @@ class ClusterQueue:
         return "--" + str(key).replace("_", "-")
 
     def _to_arg(self, flag, v):
-        return " {} {}".format(flag, str(v).replace(" ", "_"))
+        return " {} {}".format(flag, str(v))
 
     def run(self):
         print("\n", "[+] Launching: ", self.cmd, "\n")
@@ -74,22 +74,22 @@ class ClusterQueue:
 
 
 # General parameters
-description = "replicate_without_patch_and_scale_DQN_critic_dim_200_200"
+description = "pan_tilt_vergence_regular_2_frames_reward_scaling_factor_200_net_dim_200_200_after_fix_typo_stride_8_no_gradient_stop"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 56, #40
+    "mincpus": 46, #40
     "mem": 90000, #90_000
     "description": description,
-    "reservation": "triesch-shared"
+    # "reservation": "triesch-shared"
 }
 
 # Define algorithm specs here
 algo_params = {
     "n_episodes": 400000, #200_000
-    "n_workers": 48, #40
+    "n_workers": 46, #40
     "description": description,
     "critic_learning_rate": 1e-4,
     "model_learning_rate": 1e-4,
@@ -97,8 +97,7 @@ algo_params = {
     "episode_length": 10,
     "reward_scaling_factor": 200,
     "epsilon": 0.05,
-    "batch_size": 200,
-    # "restore_from": "../experiments/2020_03_08-13.39.19_mlr1.00e-04_clr1.00e-04__checkpoint/checkpoints/00000010/"
+    "batch_size": 200
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
