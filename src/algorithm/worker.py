@@ -278,7 +278,7 @@ class Worker:
         self.latent_2_frames = tf.concat([self.scale_latent_2_frames[r] for r in self.ratios], axis=1)
         self.autoencoder_loss_2_frames = sum([self.scale_recerr_2_frames[r] for r in self.ratios])
         self.total_recerrs_2_frames = self.scale_recerrs_2_frames[self.ratios[0]]
-        for ration in self.ratios[1:]:
+        for ratio in self.ratios[1:]:
             self.total_recerrs_2_frames += self.scale_recerrs_2_frames[ratio]
         self.total_recerrs_2_frames /= self.n_scales
 
@@ -319,7 +319,7 @@ class Worker:
         self.latent_4_frames = tf.concat([self.scale_latent_4_frames[r] for r in self.ratios], axis=1)
         self.autoencoder_loss_4_frames = sum([self.scale_recerr_4_frames[r] for r in self.ratios])
         self.total_recerrs_4_frames = self.scale_recerrs_4_frames[self.ratios[0]]
-        for ration in self.ratios[1:]:
+        for ratio in self.ratios[1:]:
             self.total_recerrs_4_frames += self.scale_recerrs_4_frames[ratio]
         self.total_recerrs_4_frames /= self.n_scales
 
