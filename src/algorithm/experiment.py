@@ -274,6 +274,7 @@ class Experiment:
         while n_received != n_sent:
             test_cases_chunk, test_data_chunk = self.testing_data_queue.get()
             n_received += 1
+            print("EXPERIMENT: received {: 3d}/{: 3d}".format(n_received, n_sent))
             for item in zip(test_cases_chunk, test_data_chunk):
                 res.append(item)
         for pipe in self.here_pipes:
@@ -294,6 +295,7 @@ class Experiment:
         while n_received < n_test_cases:
             test_case, test_data = self.testing_data_queue.get()
             n_received += 1
+            print("EXPERIMENT: received {: 3d}/{: 3d}".format(n_received, n_test_cases))
             res.append((test_case, test_data))
             if n_received % 100 == 0:
                 print("EXPERIMENT: tested {: 5d} out of {: 5d} cases".format(n_received, n_test_cases))
