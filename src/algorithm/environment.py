@@ -7,23 +7,11 @@ from pyrep.objects.joint import Joint
 import numpy as np
 from helper.utils import deg, rad, to_angle
 
-
-class SquaredPlane(Shape):
-    def __init__(self, size):
-        self.size = size
-        d = size / 2
-        vertices = [-d, 0.0, -d, d, 0.0, -d, d, 0.0, d, -d, 0.0, d]
-        indices = [0, 1, 2, 0, 2, 3]
-        shape = Shape.create_mesh(vertices, indices)
-        self._handle = shape.get_handle()
-
-    def set_texture(self, texture):
-        super().set_texture(texture, TextureMappingMode.CUBE, interpolate=False, uv_scaling=[self.size, self.size])
-
-
-class RandomScreen(SquaredPlane):
+class RandomScreen(Shape):
     def __init__(self, min_distance, max_distance, max_speed_in_deg, textures_list):
-        super().__init__(1.5)
+        shape = Shape("vs_screen#")
+        self._handle = shape.get_handle()
+        self.size = 1.5
         self.textures_list = textures_list
         self.min_distance = min_distance
         self.max_distance = max_distance
@@ -32,9 +20,11 @@ class RandomScreen(SquaredPlane):
 
     def set_texture(self, index=None):
         if index is None:
-            super().set_texture(self.textures_list[np.random.randint(len(self.textures_list))])
+            super().set_texture(self.textures_list[np.random.randint(len(self.textures_list))],
+                                    TextureMappingMode.CUBE, interpolate=False, uv_scaling=[self.size, self.size])
         else:
-            super().set_texture(self.textures_list[index])
+            super().set_texture(self.textures_list[index],
+                                    TextureMappingMode.CUBE, interpolate=False, uv_scaling=[self.size, self.size])
 
     def episode_reset(self, preinit=False):
         self.distance = np.random.uniform(self.min_distance, self.max_distance)
@@ -82,7 +72,7 @@ class RandomScreen(SquaredPlane):
 
 class Environment:
     def __init__(self, texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_png_selection/",
-                 scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot.ttt", headless=True):
+                 scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot_collection.ttt", headless=True):
         self.pyrep = PyRep()
         self.pyrep.launch(scene, headless=headless)
         min_distance = 0.5
@@ -260,41 +250,13 @@ class StereoVisionRobot:
 
 
 if __name__ == "__main__":
-    import time
+    import matplotlib.pyplot as plt
 
-    env = Environment(False)
-    env.step()
+    env = Environment()
     env.robot.set_position([0, 0, 0], joint_limit_type="none")
     env.step()
-    time.sleep(2)
-    t0 = time.time()
     for i in range(10):
         env.episode_reset()
-        for j in range(15):
-            time.sleep(0.1)
-            env.step()
-    # for i in range(15):
-    #     env.robot.set_delta_vergence_position(1)
-    #     print(env.robot.get_vergence_position())
-    #     time.sleep(0.5)
-    # for i in range(30):
-    #     env.robot.set_delta_vergence_position(-1)
-    #     print(env.robot.get_vergence_position())
-    #     time.sleep(0.5)
-    # for i in range(10):
-    #     env.robot.set_delta_vergence_position(1)
-    #     print(env.robot.get_vergence_position())
-    #     time.sleep(0.5)
-    # for i in range(10):
-    #     env.robot.set_pan_position(i)
-    #     print(env.robot.get_pan_position())
-    #     time.sleep(0.5)
-        # env.episode_reset()
-        # for i in range(10):
-        #     env.robot.set_delta_vergence_position(1)
-        #     env.step()
-        #     env.robot.get_vision()
-    t1 = time.time()
-    env.close()
-    print("About {} sec per episode".format((t1 - t0) / 10))
-    print("About {} iterations per sec".format(100 / (t1 - t0)))
+        left, right = env.robot.get_vision()
+        plt.imshow(left)
+        plt.show()
