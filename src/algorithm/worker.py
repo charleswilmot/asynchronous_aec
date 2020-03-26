@@ -139,12 +139,12 @@ class Worker:
         testing_data_type_description = [
             ("action_index", (np.int32, 3)),
             ("action_value", (np.float32, 3)),
-            ("critic_value_tilt", (np.float32, 9)),  # 9 <--> n_actions_per_joint (self.testing_data_type shoud be member of the worker)
+            ("critic_value_tilt", (np.float32, 9)),
             ("critic_value_pan", (np.float32, 9)),
             ("critic_value_vergence", (np.float32, 9)),
             ("total_recerrs_4_frames", (np.float32)),
             ("scale_recerrs_4_frames", (np.float32, self.n_scales)),
-            ("total_reconstruction_error", np.float32),
+            # ("total_reconstruction_error", np.float32),
             ("eye_position", (np.float32, 3)),
             ("eye_speed", (np.float32, 2)),
             ("speed_error", (np.float32, 2)),
@@ -169,9 +169,8 @@ class Worker:
         self._recerrs_data = np.zeros(shape=(self.episode_length + 1, self.n_encoders), dtype=np.float32)
 
         # Manage Data Logging
-        self.saver = tf.train.Saver()
-        model_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="model")
-        self.model_saver = tf.train.Saver(var_list=model_variables)
+        self.saver = tf.train.Saver()  # tf.trainable_variables() + list_of_extra_variables_for_batchnorm
+        self.model_saver = tf.train.Saver(var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="model"))
         self.sess = tf.Session(target=self.server.target)
         # todo: variable initialization can be done in the experiment constructor, would be more elegent
         if task_index == 0 and len(self.sess.run(tf.report_uninitialized_variables())) > 0:  # todo: can be done in Experiment
@@ -485,6 +484,48 @@ class Worker:
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
 
+    def test_fast(self):
+        fetches = {
+            "total_recerrs_4_frames": self.total_recerrs_4_frames,
+            "scale_recerrs_4_frames": self.scale_recerrs_4_frames,
+            "critic_value": self.critic_values,
+            "action_index": self.greedy_actions_indices
+        }
+        if self.turn_2_frames_vergence_on:
+            fetches["total_recerrs_2_frames"] = self.total_recerrs_2_frames
+            fetches["scale_recerrs_2_frames"] = self.scale_recerrs_2_frames
+        while not self.test_cases_queue.empty():
+            try:
+                test_cases_chunk, policy_independent_inputs = self.test_cases_queue.get(timeout=1)
+            except queue.Empty:
+                print("{} found an empty queue".format(self.name))
+                break
+            test_data = np.zeros(shape=(len(test_cases_chunk), 1), dtype=self.testing_data_type)
+            feed_dict = {
+                self.left_cam_before: policy_independent_inputs[:, 0],
+                self.right_cam_before: policy_independent_inputs[:, 1],
+                self.left_cam: policy_independent_inputs[:, 2],
+                self.right_cam: policy_independent_inputs[:, 3]
+            }
+            data = self.sess.run(fetches, feed_dict=feed_dict)
+            action_value = self.actions_indices_to_values(data["action_index"])
+            test_data[:, 0]["action_index"] = np.array([data["action_index"][jn] for jn in ["tilt", "pan", "vergence"]]).T
+            test_data[:, 0]["action_value"] = (0, 0, 0)  # useless
+            test_data[:, 0]["critic_value_tilt"] = data["critic_value"]["tilt"]
+            test_data[:, 0]["critic_value_pan"] = data["critic_value"]["pan"]
+            test_data[:, 0]["critic_value_vergence"] = data["critic_value"]["vergence"]
+            test_data[:, 0]["eye_position"] = (0, 0, 0)  # useless
+            test_data[:, 0]["eye_speed"] = (0, 0)  # useless
+            test_data[:, 0]["speed_error"] = test_cases_chunk["speed_error"]
+            test_data[:, 0]["vergence_error"] = test_cases_chunk["vergence_error"]
+            test_data[:, 0]["total_recerrs_4_frames"] = data["total_recerrs_4_frames"]
+            test_data[:, 0]["scale_recerrs_4_frames"] = np.stack([data["scale_recerrs_4_frames"][r] for r in self.ratios], axis=-1)
+            if self.turn_2_frames_vergence_on:
+                test_data[:, 0]["total_recerrs_2_frames"] = data["total_recerrs_2_frames"]
+                test_data[:, 0]["scale_recerrs_2_frames"] = np.stack([data["scale_recerrs_2_frames"][r] for r in self.ratios], axis=-1)
+            self.testing_data_queue.put((test_cases_chunk, test_data))
+        self.pipe.send("{} no more fast test cases, going IDLE".format(self.name))
+
     def test(self):
         """Performs tests in the environment, using the greedy policy.
         The resulting measures are sent back to the Experiment class (the server)
@@ -546,8 +587,10 @@ class Worker:
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - screen_speed
                 test_data[i]["vergence_error"] = self.environment.robot.get_vergence_error(test_case["object_distance"])
                 test_data[i]["total_recerrs_4_frames"] = data["total_recerrs_4_frames"]
+                test_data[i]["scale_recerrs_4_frames"] = np.stack([data["scale_recerrs_4_frames"][r] for r in self.ratios], axis=-1)
                 if self.turn_2_frames_vergence_on:
                     test_data[i]["total_recerrs_2_frames"] = data["total_recerrs_2_frames"]
+                    test_data[i]["scale_recerrs_2_frames"] = np.stack([data["scale_recerrs_2_frames"][r] for r in self.ratios], axis=-1)
                 if i + 1 != test_case["n_iterations"]:
                     self.environment.robot.set_action(action_value, joint_limit_type="none")
                 left_image_before = left_image

@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from read_data import filter_data
+from helper.generate_test_conf import TestConf
+from plot.write_data import FigureManager
 
 
 cdict = {'red':   ((0.0,  1.0, 1.0),
@@ -100,7 +102,7 @@ def plot_recerr_wrt_speed_error(fig, anchors, data, pan_or_tilt="pan"):
 
 
 def plot_recerr_wrt_speed_error_ax(ax, anchors, data, pan_or_tilt="pan",
-                                       ylim=[0, 0.03], set_title=True, set_ylabel=True, inset=True):
+                                       ylim=[0, 0.06], set_title=True, set_ylabel=True, inset=True):
     joint_index = 1 if pan_or_tilt == "pan" else 0
     data = filter_data(data, **anchors)
     test_cases = np.array([a for a, b in data])
@@ -146,7 +148,7 @@ def plot_recerr_wrt_vergence_error(fig, anchors, data):
 
 
 def plot_recerr_wrt_vergence_error_ax(ax, anchors, data, turn_2_frames_vergence_on=True,
-                                          ylim=[0, 0.03], set_title=True, set_ylabel=True, inset=True):
+                                          ylim=[0, 0.06], set_title=True, set_ylabel=True, inset=True):
     total_recerrs = "total_recerrs_2_frames" if turn_2_frames_vergence_on else "total_recerrs_4_frames"
     joint_index = 2
     data = filter_data(data, **anchors)
@@ -187,14 +189,14 @@ def plot_recerr_wrt_vergence_error_ax(ax, anchors, data, turn_2_frames_vergence_
     ax.set_ylim(ylim)
 
 
-def plot_critic_accuracy_vergence(fig, anchors, data, stimulus=0, at_error=0):
+def plot_critic_accuracy_vergence(fig, anchors, data, reward_scaling_factor=200, stimulus=0, at_error=0):
     ax = fig.add_subplot(111)
-    plot_critic_accuracy_vergence_ax(ax, anchors, data, stimulus=stimulus, at_error=at_error)
+    plot_critic_accuracy_vergence_ax(ax, anchors, data, reward_scaling_factor=reward_scaling_factor, stimulus=stimulus, at_error=at_error)
 
 
 def plot_critic_accuracy_vergence_ax(ax, anchors, data, turn_2_frames_vergence_on=True,
                                           set_title=True, set_ylabel=True,
-                                          reward_scaling_factor=100, stimulus=0, at_error=0):
+                                          reward_scaling_factor=200, stimulus=0, at_error=0):
     total_recerrs = "total_recerrs_2_frames" if turn_2_frames_vergence_on else "total_recerrs_4_frames"
     joint_index = 2
     data = filter_data(data, **anchors)
@@ -222,6 +224,46 @@ def plot_critic_accuracy_vergence_ax(ax, anchors, data, turn_2_frames_vergence_o
     ax.plot(actions_in_pixels, critic_values, label="critic")
     ax.set_xlabel("Action (in pixel)")
     ax.set_ylabel("Reward / Return")
+    ax.set_ylim([-2, 0.2])
+    ax.legend()
+
+
+def plot_critic_accuracy_speed(fig, anchors, data, reward_scaling_factor=200, pan_or_tilt="pan", stimulus=0, at_error=0):
+    ax = fig.add_subplot(111)
+    plot_critic_accuracy_speed_ax(ax, anchors, data, pan_or_tilt, reward_scaling_factor=reward_scaling_factor, stimulus=stimulus, at_error=at_error)
+
+
+def plot_critic_accuracy_speed_ax(ax, anchors, data, pan_or_tilt="pan",
+                                          set_title=True, set_ylabel=True,
+                                          reward_scaling_factor=200, stimulus=0, at_error=0):
+    joint_index = 2
+    data = filter_data(data, **anchors)
+    test_cases = np.array([a for a, b in data])
+    data = np.array([b for a, b in data])
+    actions_in_pixels = np.array([-8, -4, -2, -1, 0, 1, 2, 4, 8]) / 2
+    one_pixel = 90 / 320
+    n_actions = len(actions_in_pixels)
+    # x axis: action
+    # y axis: recerr and critic val
+    # text indicating which stimulus, which error
+    # vertical line showing the error on the x axis
+    where = np.where(test_cases["stimulus"] == stimulus)
+    data = data[where][:, 0]
+    rewards = []
+    critic_values = []
+    pan_tilt_index = 0 if pan_or_tilt == "tilt" else 1
+    where = np.where(np.abs(data["speed_error"][:, pan_tilt_index] / one_pixel - at_error) < 1e-2)
+    baseline_reconstructiuon_error = data["total_recerrs_4_frames"][where]
+    critic_values = data["critic_value_{}".format(pan_or_tilt)][where][0]
+    for action in actions_in_pixels:
+        where = np.where(np.abs(data["speed_error"][:, pan_tilt_index] / one_pixel + action - at_error) < 1e-2)
+        reconstruction_error = data["total_recerrs_4_frames"][where]
+        rewards.append((baseline_reconstructiuon_error - reconstruction_error) * reward_scaling_factor)
+    ax.plot(actions_in_pixels, rewards, label="reward")
+    ax.plot(actions_in_pixels, critic_values, label="critic")
+    ax.set_xlabel("Action (in pixel)")
+    ax.set_ylabel("Reward / Return")
+    ax.set_ylim([-2, 0.2])
     ax.legend()
 
 
@@ -231,7 +273,7 @@ def plot_recerr_wrt_speed_error_per_scale(fig, anchors, data, pan_or_tilt="pan")
 
 
 def plot_recerr_wrt_speed_error_per_scale_ax(ax, anchors, data, pan_or_tilt="pan",
-                                             ylim=[0, 0.02], set_title=True, set_ylabel=True, legend=True):
+                                             ylim=[0, 0.05], set_title=True, set_ylabel=True, legend=True):
     joint_index = 1 if pan_or_tilt == "pan" else 0
     data = np.array([b for a, b in filter_data(data, **anchors)])
     one_pixel = 90 / 320
@@ -259,7 +301,7 @@ def plot_recerr_wrt_vergence_error_per_scale(fig, anchors, data):
 
 
 def plot_recerr_wrt_vergence_error_per_scale_ax(ax, anchors, data,
-                                             ylim=[0, 0.02], set_title=True, set_ylabel=True, legend=True, turn_2_frames_vergence_on=True):
+                                             ylim=[0, 0.05], set_title=True, set_ylabel=True, legend=True, turn_2_frames_vergence_on=True):
     scale_recerrs = "scale_recerrs_2_frames" if turn_2_frames_vergence_on else "scale_recerrs_4_frames"
     data = np.array([b for a, b in filter_data(data, **anchors)])
     one_pixel = 90 / 320
@@ -281,7 +323,7 @@ def plot_recerr_wrt_vergence_error_per_scale_ax(ax, anchors, data,
     ax.set_ylim(ylim)
 
 
-def plot_reward_wrt_action_speed_error_pair(fig, anchors, data, pan_or_tilt="pan", title_supplement=""):
+def plot_reward_wrt_action_speed_error_pair(fig, anchors, data, reward_scaling_factor=200, pan_or_tilt="pan", title_supplement=""):
     joint_index = 1 if pan_or_tilt == "pan" else 0
     data = filter_data(data, **anchors)
     test_cases = np.array([a for a, b in data])
@@ -311,7 +353,6 @@ def plot_reward_wrt_action_speed_error_pair(fig, anchors, data, pan_or_tilt="pan
     xmax = speed_errors[-1] / one_pixel
     ymin = -n_actions / 2
     ymax = n_actions / 2
-    reward_scaling_factor = 100
     im = ax.imshow(reward_matrix * reward_scaling_factor, aspect="auto", extent=[xmin, xmax, ymin, ymax], cmap="seismic")
     # im = ax.imshow(reward_matrix * reward_scaling_factor, aspect="auto", extent=[xmin, xmax, ymin, ymax], cmap=rbg_cmap)
     cbar = fig.colorbar(im)
@@ -529,8 +570,12 @@ def plot_abs_vergence_trajectory_ax(ax, anchors, data, set_title=True, set_ylabe
     ax.set_xticklabels(xticklabels[1::2])
 
 
-def all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan", per_stimulus=False):
+def all_wrt_speed_error(lists_of_param_anchors, data, reward_scaling_factor=200, pan_or_tilt="pan", per_stimulus=False):
     anchors = lists_of_param_anchors["wrt_{}_speed_error".format(pan_or_tilt)]
+
+    for stimulus in anchors["stimulus"]:
+        with FigureManager("{}_critic_accuracy_stimulus_{}.png".format(pan_or_tilt, stimulus)) as fig:
+            plot_critic_accuracy_speed(fig, anchors, data, reward_scaling_factor=reward_scaling_factor, pan_or_tilt=pan_or_tilt, stimulus=stimulus)
 
     ### plot v shape pan
     with FigureManager("{}_recerr_wrt_speed_error.png".format(pan_or_tilt)) as fig:
@@ -541,7 +586,7 @@ def all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan", per_sti
 
     ### plot reward pan
     with FigureManager("{}_reward_wrt_action_speed_error_pair.png".format(pan_or_tilt)) as fig:
-        plot_reward_wrt_action_speed_error_pair(fig, anchors, data, pan_or_tilt=pan_or_tilt)
+        plot_reward_wrt_action_speed_error_pair(fig, anchors, data, reward_scaling_factor=reward_scaling_factor, pan_or_tilt=pan_or_tilt)
 
     with FigureManager("{}_policy.png".format(pan_or_tilt)) as fig:
         plot_policy_pan_tilt(fig, anchors, data, pan_or_tilt=pan_or_tilt)
@@ -551,16 +596,16 @@ def all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan", per_sti
         for stimulus in anchors["stimulus"]:
             with FigureManager("{}_reward_wrt_action_speed_error_pair_stimulus_{}.png".format(pan_or_tilt, stimulus)) as fig:
                 anchors["stimulus"] = [stimulus]
-                plot_reward_wrt_action_speed_error_pair(fig, anchors, data, pan_or_tilt=pan_or_tilt, title_supplement="   (Stimulus #{})".format(stimulus))
+                plot_reward_wrt_action_speed_error_pair(fig, anchors, data, reward_scaling_factor=reward_scaling_factor, pan_or_tilt=pan_or_tilt, title_supplement="   (Stimulus #{})".format(stimulus))
     return
 
 
-def all_wrt_vergence_error(lists_of_param_anchors, data):
+def all_wrt_vergence_error(lists_of_param_anchors, data, reward_scaling_factor=200):
     anchors = lists_of_param_anchors["wrt_vergence_error"]
 
     for stimulus in anchors["stimulus"]:
         with FigureManager("vergence_critic_accuracy_stimulus_{}.png".format(stimulus)) as fig:
-            plot_critic_accuracy_vergence(fig, anchors, data, stimulus=stimulus)
+            plot_critic_accuracy_vergence(fig, anchors, data, reward_scaling_factor=reward_scaling_factor, stimulus=stimulus)
 
     with FigureManager("vergence_policy.png") as fig:
         plot_policy_vergence(fig, anchors, data)
@@ -649,6 +694,46 @@ def triple_wrt_error(lists_of_param_anchors, data):
     return
 
 
+def plot_test(test_data_path, test_conf_path, save, overwrite):
+    test_plots_dir = os.path.dirname(os.path.abspath(test_data_path)) + "/../test_plots/"
+    plots_dir = test_plots_dir + os.path.splitext(os.path.basename(test_data_path))[0] + "/"
+    if save:
+        os.makedirs(test_plots_dir, exist_ok=True)
+        try:
+            os.makedirs(plots_dir, exist_ok=overwrite)
+        except Exception as e:
+            print(plots_dir, " : file exists")
+            return
+    FigureManager._path = plots_dir
+    FigureManager._save = save
+    lists_of_param_anchors = TestConf.load_test_description(test_conf_path)
+    with open(test_data_path, "rb") as f:
+        data = pickle.load(f)
+
+    reward_scaling_factor = 200
+    if "wrt_pan_speed_error" in lists_of_param_anchors:
+        all_wrt_speed_error(lists_of_param_anchors, data, reward_scaling_factor=reward_scaling_factor, pan_or_tilt="pan")
+    if "wrt_tilt_speed_error" in lists_of_param_anchors:
+        all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="tilt")
+    if "wrt_vergence_error" in lists_of_param_anchors:
+        all_wrt_vergence_error(lists_of_param_anchors, data, reward_scaling_factor=reward_scaling_factor)
+    if "pan_speed_trajectory" in lists_of_param_anchors:
+        all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="pan")
+    if "tilt_speed_trajectory" in lists_of_param_anchors:
+        all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="tilt")
+    if "vergence_trajectory" in lists_of_param_anchors:
+        all_vergence_trajectory(lists_of_param_anchors, data)
+    ### triple plots:
+    if "pan_speed_trajectory" in lists_of_param_anchors and \
+       "tilt_speed_trajectory" in lists_of_param_anchors and \
+       "vergence_trajectory" in lists_of_param_anchors:
+        triple_trajectory(lists_of_param_anchors, data)
+    if "wrt_pan_speed_error" in lists_of_param_anchors and \
+       "wrt_tilt_speed_error" in lists_of_param_anchors and \
+       "wrt_vergence_error" in lists_of_param_anchors:
+        triple_wrt_error(lists_of_param_anchors, data)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -675,64 +760,5 @@ if __name__ == "__main__":
         help="Save plots"
     )
     args = parser.parse_args()
-    test_plots_dir = os.path.dirname(os.path.abspath(args.path)) + "/../test_plots/"
-    plots_dir = test_plots_dir + os.path.splitext(os.path.basename(args.path))[0] + "/"
-    if args.save:
-        os.makedirs(test_plots_dir, exist_ok=True)
-        os.makedirs(plots_dir, exist_ok=args.overwrite)
 
-
-    class FigureManager:
-        def __init__(self, filename):
-            self._fig = plt.figure(dpi=200)
-            self._path = plots_dir
-            self._filename = filename
-
-        def __enter__(self):
-            return self._fig
-
-        def __exit__(self, exc_type, exc_value, exc_traceback):
-            if args.save:
-                print("saving plot {}  ...  ".format(self._filename), end="")
-                self._fig.savefig(self._path + self._filename)
-                print("done")
-                plt.close(self._fig)
-            else:
-                plt.show()
-
-
-    with open(args.test_conf_path, "rb") as f:
-        lists_of_param_anchors = pickle.load(f)["test_descriptions"]
-        # lists_of_param_anchors = pickle.load(f)["test_descriptions"]["vergence_trajectory"]
-
-    with open(args.path, "rb") as f:
-        data = pickle.load(f)
-
-
-    #plot_stimulus_path(fig, lists_of_param_anchors, data)
-    #plot_tilt_path_all(fig, lists_of_param_anchors, data)
-    # plot_vergence_trajectory_all(fig, lists_of_param_anchors, data)
-    # plt.show()
-
-    if "wrt_pan_speed_error" in lists_of_param_anchors:
-        all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="pan")
-    if "wrt_tilt_speed_error" in lists_of_param_anchors:
-        all_wrt_speed_error(lists_of_param_anchors, data, pan_or_tilt="tilt")
-    if "wrt_vergence_error" in lists_of_param_anchors:
-        all_wrt_vergence_error(lists_of_param_anchors, data)
-    if "pan_speed_trajectory" in lists_of_param_anchors:
-        all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="pan")
-    if "tilt_speed_trajectory" in lists_of_param_anchors:
-        all_speed_trajectory(lists_of_param_anchors, data, pan_or_tilt="tilt")
-    if "vergence_trajectory" in lists_of_param_anchors:
-        all_vergence_trajectory(lists_of_param_anchors, data)
-
-    ### triple plots:
-    if "pan_speed_trajectory" in lists_of_param_anchors and \
-       "tilt_speed_trajectory" in lists_of_param_anchors and \
-       "vergence_trajectory" in lists_of_param_anchors:
-        triple_trajectory(lists_of_param_anchors, data)
-    if "wrt_pan_speed_error" in lists_of_param_anchors and \
-       "wrt_tilt_speed_error" in lists_of_param_anchors and \
-       "wrt_vergence_error" in lists_of_param_anchors:
-        triple_wrt_error(lists_of_param_anchors, data)
+    plot_test(args.path, args.test_conf_path, args.save, args.overwrite)

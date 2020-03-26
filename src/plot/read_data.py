@@ -1,6 +1,7 @@
 import pickle
 import numpy as np
 import os
+from helper.generate_test_conf import TestConf
 
 
 def read_training_data(path):
@@ -38,8 +39,7 @@ def read_all_abs_testing_performance(path):
         splits = filename.split("_")
         iteration = int(splits[0])
         test_conf = "_".join(splits[1:])
-        with open("../test_conf/{}".format(test_conf), 'rb') as f:
-            lists_of_param_anchors = pickle.load(f)["test_descriptions"]
+        lists_of_param_anchors = TestConf.load_test_description("../test_conf/{}".format(test_conf))
         vergence, pan, tilt = False, False, False
         if "vergence_trajectory" in lists_of_param_anchors:
             vergence = True

@@ -7,10 +7,10 @@ import multiprocessing
 import tensorflow as tf
 import numpy as np
 from algorithm.worker import Worker
+from helper.generate_test_conf import TestConf
 import time
 import subprocess
 from itertools import cycle, islice
-from helper.proper_display import ProperDisplay
 
 
 def repeatlist(it, count):
@@ -127,11 +127,12 @@ class Experiment:
     It starts one process per worker, and one process per parameter server
     It also constructs the filesystem tree for storing all results / data"""
 
-    def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, worker0_display=False):
+    def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, test_conf_path=None, worker0_display=False):
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
         self.experiment_dir = experiment_dir
         self.worker_conf = worker_conf
+        self.test_conf_path = test_conf_path
         self.worker0_display = worker0_display
         self.mktree()
         with open(self.confdir + "/worker_conf.pkl", "wb") as f:
@@ -177,6 +178,10 @@ class Experiment:
         print("EXPERIMENT: all processes started. Waiting for answer...")
         for p in self.here_pipes:
             print(p.recv())
+        print("EXPERIMENT: all processes started. Waiting for answer... received")
+        print("EXPERIMENT: loading test_conf from hard drive")
+        self.test_conf = None if test_conf_path is None else TestConf.load(test_conf_path)
+        print("EXPERIMENT: loading test_conf from hard drive ... done")
 
     def mktree(self):
         self.logdir = self.experiment_dir + "/log"
@@ -249,17 +254,43 @@ class Experiment:
         self.here_pipes[0].send(("get_current_episode_count", ))
         return self.here_pipes[0].recv()
 
-    def test(self, test_conf_path, chunks_size=10, outpath=None):
-        # generate list_of_test_cases
-        with open(test_conf_path, "rb") as f:
-            list_of_test_cases = pickle.load(f)["test_cases"]
+    def test(self, chunks_size=30, outpath=None):
+        # policy independent test cases:
+        print("EXPERIMENT: policy independent testing")
+        # send
+        list_of_test_cases = self.test_conf.data["test_cases_policy_independent"]
+        policy_independent_inputs = self.test_conf.policy_independent_inputs
+        n_sent = 0
+        for index in range(0, len(list_of_test_cases), chunks_size):
+            self.test_cases_queue.put(
+                (list_of_test_cases[index:index + chunks_size], policy_independent_inputs[index:index + chunks_size])
+            )
+            n_sent += 1
+        for pipe in self.here_pipes:
+            pipe.send(("test_fast",))
+        # receive
+        n_received = 0
+        res = []
+        while n_received != n_sent:
+            test_cases_chunk, test_data_chunk = self.testing_data_queue.get()
+            n_received += 1
+            for item in zip(test_cases_chunk, test_data_chunk):
+                res.append(item)
+        for pipe in self.here_pipes:
+            print(pipe.recv())  # make sure all workers are done
+        print("EXPERIMENT: policy independent testing ... done")
+
+        # policy dependent test cases:
+        print("EXPERIMENT: policy dependent testing")
+        # send
+        list_of_test_cases = self.test_conf.data["test_cases_policy_dependent"]
         n_test_cases = len(list_of_test_cases)
         for test_case in list_of_test_cases:
             self.test_cases_queue.put(test_case)
         for pipe in self.here_pipes:
             pipe.send(("test",))
+        # receive
         n_received = 0
-        res = []
         while n_received < n_test_cases:
             test_case, test_data = self.testing_data_queue.get()
             n_received += 1
@@ -274,11 +305,12 @@ class Experiment:
             current_episode_count = np.random.randint(0, 100000000)
         # store the data
         path = self.testdatadir if outpath is None else outpath
-        test_conf_basename = os.path.basename(test_conf_path)
+        test_conf_basename = os.path.basename(self.test_conf_path)
         test_conf_name = os.path.splitext(test_conf_basename)[0]
-        path = path + "/{}_{}.pkl".format(current_episode_count, test_conf_name)
+        path = path + "/{:07d}_{}.pkl".format(current_episode_count, test_conf_name)
         with open(path, "wb")as f:
             pickle.dump(res, f)
+        print("EXPERIMENT: policy dependent testing ... done")
         print("EXPERIMENT: saved testing data under {}".format(path))
 
     def playback(self, n_episodes, greedy=False):

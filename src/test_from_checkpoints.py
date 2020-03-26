@@ -1,6 +1,8 @@
 import time
 from tempfile import TemporaryDirectory
-from asynchronous import Experiment, Conf
+from algorithm.experiment import Experiment
+from algorithm.conf import Conf
+from helper.generate_test_conf import TestConf
 import pickle
 
 
@@ -33,6 +35,6 @@ if __name__ == "__main__":
         worker_conf = pickle.load(f)
 
     with TemporaryDirectory() as d:
-        with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, worker0_display=False) as exp:
+        with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, test_conf_path=args.test_conf_path, worker0_display=False) as exp:
             exp.restore_model(experiment_dir)
-            exp.test(args.test_conf_path, outpath=args.path + "/../../test_data/")
+            exp.test(outpath=args.path + "/../../test_data/")

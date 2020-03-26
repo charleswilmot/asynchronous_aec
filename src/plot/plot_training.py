@@ -4,6 +4,8 @@ from read_data import read_training_data, read_all_abs_testing_performance
 import numpy as np
 import matplotlib.pyplot as plt
 from helper.utils import vergence_error
+from helper.generate_test_conf import TestConf
+from plot.write_data import FigureManager
 
 
 TRAINING_DATA_RECORD_FREQ = 10
@@ -46,11 +48,25 @@ def plot(data, abs_errors):
         plot_joint_errors(fig, data, abs_errors, 500, 200)
 
 
-
-
-
-
-
+def plot_train(train_data_path, save, overwrite):
+    train_plots_dir = os.path.dirname(os.path.abspath(train_data_path)) + "/../train_plots/"
+    data = read_training_data(train_data_path)
+    test_data_path, _ = os.path.split(train_data_path)
+    test_data_path, _ = os.path.split(test_data_path)
+    test_data_path += '/test_data/'
+    abs_errors = read_all_abs_testing_performance(test_data_path)
+    n_episodes = data.shape[0]
+    plots_dir = train_plots_dir + "{:08d}".format(n_episodes) + "/"
+    FigureManager._path = plots_dir
+    FigureManager._save = save
+    if save:
+        os.makedirs(train_plots_dir, exist_ok=True)
+        try:
+            os.makedirs(plots_dir, exist_ok=overwrite)
+        except Exception as e:
+            print(plots_dir, " : file exists")
+            return
+    plot(data, abs_errors)
 
 
 if __name__ == "__main__":
@@ -73,35 +89,4 @@ if __name__ == "__main__":
         help="Save plots"
     )
     args = parser.parse_args()
-    train_plots_dir = os.path.dirname(os.path.abspath(args.path)) + "/../train_plots/"
-    data = read_training_data(args.path)
-    test_data_path, _ = os.path.split(args.path)
-    test_data_path, _ = os.path.split(test_data_path)
-    test_data_path += '/test_data/'
-    abs_errors = read_all_abs_testing_performance(test_data_path)
-    n_episodes = data.shape[0]
-    plots_dir = train_plots_dir + "{:08d}".format(n_episodes) + "/"
-    if args.save:
-        os.makedirs(train_plots_dir, exist_ok=True)
-        os.makedirs(plots_dir, exist_ok=args.overwrite)
-
-
-    class FigureManager:
-        def __init__(self, filename):
-            self._fig = plt.figure(dpi=200)
-            self._path = plots_dir
-            self._filename = filename
-
-        def __enter__(self):
-            return self._fig
-
-        def __exit__(self, exc_type, exc_value, exc_traceback):
-            if args.save:
-                print("saving plot {}  ...  ".format(self._filename), end="")
-                self._fig.savefig(self._path + self._filename)
-                print("done")
-                plt.close(self._fig)
-            else:
-                plt.show()
-
-    plot(data, abs_errors)
+    plot_train(args.path, args.save, args.overwrite)

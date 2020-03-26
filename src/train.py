@@ -4,6 +4,7 @@ import os
 from PIL import Image
 from algorithm.conf import Conf
 from algorithm.experiment import Experiment
+from helper.generate_test_conf import TestConf
 
 
 default_mlr = 1e-4
@@ -186,6 +187,13 @@ if __name__ == "__main__":
         help="Don't record a video if present"
     )
 
+    parser.add_argument(
+        '-tcp', '--test-conf-path',
+        type=str,
+        default="../test_conf/test_pan_tilt_vergence_fast.pkl",
+        help="Path to the test config file"
+    )
+
     args = parser.parse_args()
 
     if not args.experiment_path:
@@ -198,10 +206,20 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
-    test_at = [25000, 50000, 100000, 150000, 200000, 250000, 300000, 350000, 400000, 500000, 600000]
+    test_at = [
+        5000, 10000, 15000, 20000,
+        25000, 50000, 75000, 100000,
+        125000, 150000, 175000, 200000,
+        225000, 250000, 275000, 300000,
+        325000, 350000, 375000, 400000,
+        425000, 450000, 475000, 500000,
+        525000, 550000, 575000, 600000,
+        500000, 600000
+    ]
     test_at = [x for x in test_at if x < args.n_episodes] + [np.inf]
+    save_at = test_at[7::4]
 
-    with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf) as exp:
+    with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf, args.test_conf_path) as exp:
         if args.restore_from != "none":
             exp.restore_all(args.restore_from)
         if args.restore_model_from != "none":
@@ -215,7 +233,8 @@ if __name__ == "__main__":
                 last_test = test
             else:
                 exp.train(args.n_episodes - last_test)
-            exp.save_model()
-            exp.test("../test_conf/test_pan_tilt_vergence.pkl")
+            if test in save_at:
+                exp.save_model()
+            exp.test()
         if not args.no_video:
             exp.make_video("final", 100)
