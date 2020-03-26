@@ -74,13 +74,13 @@ class ClusterQueue:
 
 
 # General parameters
-description = "pan_tilt_vergence_2_frames_reward_scaling_factor_200_net_dim_200_200_after_fix_typo_batch_norm_0.99"
+description = "pan_tilt_vergence_2_frames_reward_scaling_factor_600_net_dim_200_200_after_fix_typo_batch_norm_0.99_low_compression"
 
 # Define cluster specs here
 cluster_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 56, #40
+    "mincpus": 46, #40
     "mem": 90000, #90_000
     "description": description,
     "reservation": "triesch-shared"
@@ -89,15 +89,16 @@ cluster_params = {
 # Define algorithm specs here
 algo_params = {
     "n_episodes": 400000, #200_000
-    "n_workers": 46, #40
+    "n_workers": 40, #40
     "description": description,
-    "critic_learning_rate": 1e-4,
-    "model_learning_rate": 1e-4,
+    "critic_learning_rate": 5e-5,
+    "model_learning_rate": 5e-5,
     "discount_factor": 0.001,
     "episode_length": 10,
-    "reward_scaling_factor": 200,
+    "reward_scaling_factor": 600,
     "epsilon": 0.05,
-    "batch_size": 200
+    "batch_size": 200,
+    "restore_from": "../experiments/2020_03_25-16.32.32_mlr5.00e-05_clr5.00e-05__pan_tilt_vergence_2_frames_reward_scaling_factor_600_net_dim_200_200_after_fix_typo_batch_norm_0.99_low_compression/checkpoints/00100238/"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
