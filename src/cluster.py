@@ -98,7 +98,7 @@ algo_params = {
     "reward_scaling_factor": 600,
     "epsilon": 0.05,
     "batch_size": 200,
-    "restore_from": "../experiments/2020_03_25-16.32.32_mlr5.00e-05_clr5.00e-05__pan_tilt_vergence_2_frames_reward_scaling_factor_600_net_dim_200_200_after_fix_typo_batch_norm_0.99_low_compression/checkpoints/00100238/"
+    # "restore_from": "../experiments/2020_03_25-16.32.32_mlr5.00e-05_clr5.00e-05__pan_tilt_vergence_2_frames_reward_scaling_factor_600_net_dim_200_200_after_fix_typo_batch_norm_0.99_low_compression/checkpoints/00100238/"
 }
 
 cq = ClusterQueue(algo_params, cluster_params)
