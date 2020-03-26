@@ -336,6 +336,10 @@ class Experiment:
         self.here_pipes[0].send(("restore_model", path))
         print(self.here_pipes[0].recv())
 
+    def restore_all(self, path):
+        self.here_pipes[0].send(("restore_all", path))
+        print(self.here_pipes[0].recv())
+
     def close_workers(self):
         for p in self.here_pipes:
             p.send("done")
