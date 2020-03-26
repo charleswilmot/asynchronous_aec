@@ -113,3 +113,4 @@ venv.bak/
 /experiments/
 /local_copies_of_aecgroup/
 /learning/
+/test_conf/*fast*
