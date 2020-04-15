@@ -2,10 +2,11 @@ import pickle
 import numpy as np
 import os
 from helper.generate_test_conf import TestConf
+from algorithm.conf import Conf
 
 
 def read_training_data(path):
-    with open(path, "rb") as f:
+    with open(path + "/training.data", "rb") as f:
         pickle_obj_length = np.frombuffer(f.read(4), dtype=np.int32)[0]  # get length of the pickled dtype
         dtype = pickle.loads(f.read(pickle_obj_length))                  # read pickled dtype
         episode_length = np.frombuffer(f.read(4), dtype=np.int32)[0]     # get episode_length
@@ -71,5 +72,21 @@ def read_all_abs_testing_performance(path):
     return results
 
 
+def get_experiment_metadata(experiment_path):
+    ret = {}
+    ret["experiment_path"] = os.path.normpath(experiment_path)
+    ret["train_data_path"] = os.path.normpath(ret["experiment_path"] + "/data")
+    ret["test_data_path"] = os.path.normpath(ret["experiment_path"] + "/test_data")
+    ret["plot_testing_path"] = os.path.normpath(ret["experiment_path"] + "/test_plots")
+    ret["plot_training_path"] = os.path.normpath(ret["experiment_path"] + "/train_plots")
+    ret["merge_path"] = os.path.normpath(ret["experiment_path"] + "/merge")
+    with open(os.path.normpath(ret["experiment_path"] + "/conf/worker_conf.pkl"), "rb") as f:
+        ret["conf"] = pickle.load(f)
+    with open(os.path.normpath(ret["experiment_path"] + "/conf/test_conf_path.txt"), "r") as f:
+        ret["test_conf_path"] = os.path.normpath(f.readline().replace("\n", ""))
+    return ret
+
+
 if __name__ == "__main__":
-    results = read_all_abs_testing_performance("../../experiments/2020_03_12-15.45.43_mlr1.00e-04_clr1.00e-04__replicate_without_patch_and_scale_DQN/test_data/")
+    # results = read_all_abs_testing_performance("../../experiments/2020_03_12-15.45.43_mlr1.00e-04_clr1.00e-04__replicate_without_patch_and_scale_DQN/test_data/")
+    print(get_experiment_metadata("../experiments/2020_04_02-09.11.34_mlr5.00e-04_clr5.00e-04__12_workers_compression_4_16"))
