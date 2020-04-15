@@ -197,22 +197,31 @@ class Worker:
     def define_critic_joint(self, joint_name):
         """Defines the critic merging every scales, for one joint"""
         self.picked_actions[joint_name] = tf.placeholder(shape=(None,), dtype=tf.int32, name="picked_action_{}".format(joint_name))
-        if self.turn_2_frames_vergence_on and joint_name == "vergence":
-            inp = tf.stop_gradient(self.latent_2_frames)
+        imputs = []
+        _2_frames = self.turn_2_frames_vergence_on and joint_name == "vergence"
+        if _2_frames:
+            inputs = [tf.stop_gradient(self.scale_latent_conv_2_frames[ratio]) for ratio in self.ratios]
         else:
-            inp = tf.stop_gradient(self.latent_4_frames)
-        fc1 = tl.fully_connected(inp, 200)
-        fc1 = tl.batch_norm(fc1, is_training=self.is_training, trainable=True, updates_collections=tf.GraphKeys.UPDATE_OPS, decay=self.batch_norm_decay, activation_fn=lrelu)
-        fc2 = tl.fully_connected(fc1, 200)
-        fc2 = tl.batch_norm(fc2, is_training=self.is_training, trainable=True, updates_collections=tf.GraphKeys.UPDATE_OPS, decay=self.batch_norm_decay, activation_fn=lrelu)
-        critic_values = tl.fully_connected(fc2, self.n_actions_per_joint, activation_fn=None)
+            inputs = [tf.stop_gradient(self.scale_latent_conv_4_frames[ratio]) for ratio in self.ratios]
+        flats = []
+        for inp in inputs:
+            conv1 = tl.conv2d(inp, 32 if _2_frames else 64, 2, 1, "valid", activation_fn=lrelu)
+            pool1 = tl.max_pool2d(conv1, 2, 2, "valid")
+            size = np.prod(pool1.get_shape()[1:])
+            flats.append(tf.reshape(pool1, (-1, size)))
+        flat = tf.concat(flats, axis=-1)
+        fc1 = tl.fully_connected(flat, 200, activation_fn=lrelu)
+        critic_values = tl.fully_connected(fc1, self.n_actions_per_joint, activation_fn=None)
         self.critic_values[joint_name] = critic_values
         self.returns[joint_name] = tf.placeholder(shape=critic_values.get_shape()[:1], dtype=tf.float32, name="return_{}".format(joint_name))
         actions = self.picked_actions[joint_name]
         indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
         self.critic_values_picked_actions[joint_name] = tf.gather_nd(critic_values, indices)
-        losses = (self.critic_values_picked_actions[joint_name] - self.returns[joint_name] * self.reward_scaling_factor) ** 2
-        self.critic_loss[joint_name] = tf.reduce_sum(losses)
+        self.critic_loss[joint_name] = tf.losses.huber_loss(
+            self.returns[joint_name] * self.reward_scaling_factor,
+            self.critic_values_picked_actions[joint_name],
+            delta=0.5
+        )
         ### ACTIONS:
         self.greedy_actions_indices[joint_name] = tf.cast(tf.argmax(self.critic_values[joint_name], axis=1), dtype=tf.int32)
         shape = tf.shape(self.greedy_actions_indices[joint_name])
@@ -226,6 +235,7 @@ class Worker:
         mean, var = tf.nn.moments(tf.abs(self.critic_values_picked_actions[joint_name] - self.returns[joint_name] * self.reward_scaling_factor), axes=[0])
         summaries.append(tf.summary.scalar("/joint/{}/mean_abs_distance".format(joint_name), mean))
         summaries.append(tf.summary.scalar("/joint/{}/std_abs_distance".format(joint_name), tf.sqrt(var)))
+        summaries.append(tf.summary.histogram("return_{}".format(joint_name), self.returns[joint_name]))
         self.joint_summary[joint_name] = tf.summary.merge(summaries)
 
     def define_critic(self):
@@ -289,11 +299,11 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_2_frames[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 4, filter_size, stride, "valid", activation_fn=lrelu)
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 16, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
@@ -330,11 +340,11 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_4_frames[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 2, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 4, filter_size, stride, "valid", activation_fn=lrelu)
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 16, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 4 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 4, 1, 1, "valid", activation_fn=None)
@@ -475,7 +485,7 @@ class Worker:
         The Experiment class calls this methode on the worker 0 only
         """
         self.model_saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
-        self.pipe.send("{} variables restored from {}".format(self.name, path))
+        self.pipe.send("{} model restored from {}".format(self.name, path))
 
     def restore_all(self, path):
         """Restores from a checkpoint
@@ -496,7 +506,7 @@ class Worker:
             fetches["scale_recerrs_2_frames"] = self.scale_recerrs_2_frames
         while not self.test_cases_queue.empty():
             try:
-                test_cases_chunk, policy_independent_inputs = self.test_cases_queue.get(timeout=1)
+                test_cases_chunk, policy_independent_inputs = self.test_cases_queue.get(timeout=30)
             except queue.Empty:
                 print("{} found an empty queue".format(self.name))
                 break
@@ -524,6 +534,7 @@ class Worker:
                 test_data[:, 0]["total_recerrs_2_frames"] = data["total_recerrs_2_frames"]
                 test_data[:, 0]["scale_recerrs_2_frames"] = np.stack([data["scale_recerrs_2_frames"][r] for r in self.ratios], axis=-1)
             self.testing_data_queue.put((test_cases_chunk, test_data))
+        print("{} queue is empty, no more quick tests".format(self.name))
         self.pipe.send("{} no more fast test cases, going IDLE".format(self.name))
 
     def test(self):
