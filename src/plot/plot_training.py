@@ -38,8 +38,8 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     ax.axhline(1, color="k", linestyle="--")
     ax.legend()
     ax.set_xlabel("Episode")
-    ax.set_ylabel("Speed error in pixels/it")
-    ax.set_ylim([-0.2, 8])
+    ax.set_ylabel("Speed error in px it-1\nVergence error in px")
+    ax.set_ylim([-0.2, 6])
     ax.set_title("Speed error wrt train time")
 
 
@@ -48,19 +48,15 @@ def plot(data, abs_errors):
         plot_joint_errors(fig, data, abs_errors, 500, 200)
 
 
-def plot_train(train_data_path, save, overwrite):
-    train_plots_dir = os.path.dirname(os.path.abspath(train_data_path)) + "/../train_plots/"
-    data = read_training_data(train_data_path)
-    test_data_path, _ = os.path.split(train_data_path)
-    test_data_path, _ = os.path.split(test_data_path)
-    test_data_path += '/test_data/'
-    abs_errors = read_all_abs_testing_performance(test_data_path)
+def plot_train(experiment_metadata, save, overwrite):
+    data = read_training_data(experiment_metadata["train_data_path"])
+    abs_errors = read_all_abs_testing_performance(experiment_metadata["test_data_path"])
     n_episodes = data.shape[0]
-    plots_dir = train_plots_dir + "{:08d}".format(n_episodes) + "/"
+    plots_dir = experiment_metadata["plot_training_path"] + "/{:08d}".format(n_episodes) + "/"
     FigureManager._path = plots_dir
     FigureManager._save = save
     if save:
-        os.makedirs(train_plots_dir, exist_ok=True)
+        os.makedirs(experiment_metadata["plot_training_path"], exist_ok=True)
         try:
             os.makedirs(plots_dir, exist_ok=overwrite)
         except Exception as e:
@@ -76,7 +72,7 @@ if __name__ == "__main__":
         'path', metavar="PATH",
         type=str,
         action='store',
-        help="Path to the train_data."
+        help="Path to the experiment."
     )
     parser.add_argument(
         '-o', '--overwrite',
@@ -89,4 +85,5 @@ if __name__ == "__main__":
         help="Save plots"
     )
     args = parser.parse_args()
-    plot_train(args.path, args.save, args.overwrite)
+    experiment_metadata = get_experiment_metadata(args.path)
+    plot_train(experiment_metadata, save=True, overwrite=args.overwrite)

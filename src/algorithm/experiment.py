@@ -137,6 +137,8 @@ class Experiment:
         self.mktree()
         with open(self.confdir + "/worker_conf.pkl", "wb") as f:
             pickle.dump(self.worker_conf, f)
+        with open(self.confdir + "/test_conf_path.txt", "w") as f:
+            f.write(test_conf_path)
         with open(self.confdir + "/command_line.txt", "w") as f:
             f.write("python3 " + " ".join(sys.argv) + "\n")
         self.ports = get_n_ports(n_workers, start_port=19000)
