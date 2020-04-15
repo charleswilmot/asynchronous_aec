@@ -75,28 +75,29 @@ class TestConf:
             print(n)
             self.policy_independent_inputs = np.zeros((n, 4, height, width, 3), dtype=np.float32)
             # todo
-            env = Environment()
-            for i, test_case in enumerate(self.data["test_cases_policy_independent"]):
-                print(" " * 80, end="\r")
-                print("generating input for test case: {: 4d}/ {: 4d}\t{}".format(i + 1, n, test_case), end="\r")
-                # place_robot preinit
-                vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
-                screen_speed = -test_case["speed_error"]
-                env.robot.reset_speed()
-                env.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
-                env.screen.set_texture(test_case["stimulus"])
-                env.screen.set_trajectory(
-                    test_case["object_distance"],
-                    screen_speed[0],
-                    screen_speed[1],
-                    preinit=True)
-                env.step()
-                left_cam_before, right_cam_before = env.robot.get_vision()
-                # place_robot iteration 0
-                env.step()
-                left_cam, right_cam = env.robot.get_vision()
-                self.policy_independent_inputs[i] = np.stack([left_cam_before, right_cam_before, left_cam, right_cam], axis=0)
-            print("")
+            if n > 0:
+                env = Environment()
+                for i, test_case in enumerate(self.data["test_cases_policy_independent"]):
+                    print(" " * 80, end="\r")
+                    print("generating input for test case: {: 4d}/ {: 4d}\t{}".format(i + 1, n, test_case), end="\r")
+                    # place_robot preinit
+                    vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+                    screen_speed = -test_case["speed_error"]
+                    env.robot.reset_speed()
+                    env.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
+                    env.screen.set_texture(test_case["stimulus"])
+                    env.screen.set_trajectory(
+                        test_case["object_distance"],
+                        screen_speed[0],
+                        screen_speed[1],
+                        preinit=True)
+                    env.step()
+                    left_cam_before, right_cam_before = env.robot.get_vision()
+                    # place_robot iteration 0
+                    env.step()
+                    left_cam, right_cam = env.robot.get_vision()
+                    self.policy_independent_inputs[i] = np.stack([left_cam_before, right_cam_before, left_cam, right_cam], axis=0)
+                print("")
 
     def add_to_policy_independent(self, test_cases):
         self.policy_independent_inputs = None
@@ -279,7 +280,7 @@ if __name__ == "__main__":
     # with open("../../test_conf/test_pan_tilt_vergence.pkl", "wb") as f:
     #     pickle.dump(test_conf, f)
 
-    errors = [90 / 320 * i for i in [-2, -4, 2, 4]]
+    errors = [90 / 320 * i for i in [-0.5, -1, -1.5, -2, -2.5, -3, -3.5, -4, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]]
     bound_in_px = 8
     test_conf = TestConf(
         stimulus=range(20),
@@ -291,7 +292,7 @@ if __name__ == "__main__":
     test_conf.add_vergence_trajectory()
     test_conf.add_speed_trajectory("tilt")
     test_conf.add_speed_trajectory("pan")
-    test_conf.add_wrt_vergence_error(bound_in_px)
-    test_conf.add_wrt_speed_error("tilt", bound_in_px)
-    test_conf.add_wrt_speed_error("pan", bound_in_px)
-    test_conf.dump("../test_conf/test_pan_tilt_vergence_fast_obj_distance_2.pkl")
+    # test_conf.add_wrt_vergence_error(bound_in_px)
+    # test_conf.add_wrt_speed_error("tilt", bound_in_px)
+    # test_conf.add_wrt_speed_error("pan", bound_in_px)
+    test_conf.dump("../test_conf/test_trajectory.pkl")

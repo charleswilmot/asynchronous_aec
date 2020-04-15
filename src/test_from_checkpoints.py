@@ -29,12 +29,12 @@ if __name__ == "__main__":
     experiment_dir = args.path
 
     n_parameter_servers = 1
-    n_workers = 1
+    n_workers = 40
 
     with open(experiment_dir + "/../../conf/worker_conf.pkl", "rb") as f:
         worker_conf = pickle.load(f)
 
     with TemporaryDirectory() as d:
         with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, test_conf_path=args.test_conf_path, worker0_display=False) as exp:
-            exp.restore_model(experiment_dir)
+            exp.restore_all(experiment_dir)
             exp.test(outpath=args.path + "/../../test_data/")

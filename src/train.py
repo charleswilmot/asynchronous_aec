@@ -206,8 +206,8 @@ if __name__ == "__main__":
 
     worker_conf = Conf(args)
 
-    test_at = [
-        5000, 10000, 15000, 20000,
+    test_at = [0, 5000,
+        10000, 15000, 20000,
         25000, 50000, 75000, 100000,
         125000, 150000, 175000, 200000,
         225000, 250000, 275000, 300000,
@@ -217,7 +217,7 @@ if __name__ == "__main__":
         500000, 600000
     ]
     test_at = [x for x in test_at if x < args.n_episodes] + [np.inf]
-    save_at = test_at[7::4]
+    save_at = test_at[8::4]
 
     with Experiment(args.n_parameter_servers, args.n_workers, experiment_dir, worker_conf, args.test_conf_path) as exp:
         if args.restore_from != "none":
@@ -236,5 +236,7 @@ if __name__ == "__main__":
             if test in save_at:
                 exp.save_model()
             exp.test()
+        if test not in save_at:
+            exp.save_model()
         if not args.no_video:
             exp.make_video("final", 100)
