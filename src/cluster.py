@@ -86,7 +86,7 @@ args = parser.parse_args()
 
 
 # General parameters
-description = "ICDL_error_bars"
+description = "ICDL_replicate_after_merge"
 
 # Define cluster specs here
 jetski_params = {
