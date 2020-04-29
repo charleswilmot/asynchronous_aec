@@ -111,7 +111,7 @@ algo_params = {
     "n_episodes": 100000, #200_000
     "n_workers": 12, #40
     "description": description,
-    "critic_learning_rate": 0,  # 5e-4,
+    "critic_learning_rate": 5e-4,
     "model_learning_rate": 5e-4,
     "discount_factor": 0.001,
     "episode_length": 10,
