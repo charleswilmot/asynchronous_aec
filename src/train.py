@@ -73,7 +73,7 @@ if __name__ == "__main__":
         type=int,
         nargs="+",
         help="Downscaling ratios.",
-        default=[1, 2, 3]
+        default=[1, 3]
     )
 
     parser.add_argument(
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '-rsf', '--reward-scaling-factor',
         type=float,
-        default=100,
+        default=600,
         help="Reward scaling by a constant."
     )
 
