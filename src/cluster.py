@@ -33,7 +33,7 @@ class ClusterQueue:
         experiment_path = make_experiment_path(
             mlr=algo_params["model_learning_rate"] if "model_learning_rate" in algo_params else None,
             clr=algo_params["critic_learning_rate"] if "critic_learning_rate" in algo_params else None,
-            description=algo_params["description"].replace(" ", "_"))
+            description=algo_params["description"])
         print(experiment_path)
         os.mkdir(experiment_path)
         os.mkdir(experiment_path + "/log")
@@ -41,16 +41,14 @@ class ClusterQueue:
         print("\n")
         self.cmd = "sbatch --output {}/log/%N_%j.log".format(experiment_path)
         for k, v in cluster_params.items():
-            if k in ["description"]:
-                continue
             flag = self._key_to_flag(k)
+            if k is "description":
+                flag = "--job-name"
             arg = self._to_arg(flag, v)
             logging.debug("Adding command: {}".format(arg))
             self.cmd += arg
         # FIXIT: Move this outside of the class
         self.cmd += " -LXserver"
-        if "description" in cluster_params:
-            self.cmd += " --job-name {}".format(cluster_params["description"].replace(" ", "_"))
         print("\n")
         self.cmd += " cluster.sh"
         for k, v in algo_params.items():
@@ -67,6 +65,9 @@ class ClusterQueue:
 
     def _to_arg(self, flag, v):
         return " {} {}".format(flag, str(v))
+
+    def _desc_to_arg(self, flag, v):
+        return " {} {}".format(flag, str(v).replace(" ", "_"))
 
     def run(self):
         print("\n", "[+] Launching: ", self.cmd, "\n")
@@ -86,7 +87,8 @@ args = parser.parse_args()
 
 
 # General parameters
-description = "ICDL_replicate_after_merge"
+description = "Default Run Main Branch"
+description = description.replace(" ", "_")
 
 # Define cluster specs here
 jetski_params = {
@@ -101,15 +103,15 @@ jetski_params = {
 turbine_params = {
     "partition": "sleuths",
     "gres": 'gpu:1',
-    "mincpus": 12, #40
-    "mem": 30000, #90_000
+    "mincpus": 30, #40
+    "mem": 50000, #90_000
     "description": description,
 }
 
 # Define algorithm specs here
 algo_params = {
     "n_episodes": 100000, #200_000
-    "n_workers": 12, #40
+    "n_workers": 30, #40
     "description": description,
     "critic_learning_rate": 5e-4,
     "model_learning_rate": 5e-4,
@@ -118,7 +120,8 @@ algo_params = {
     "reward_scaling_factor": 600,
     "epsilon": 0.05,
     "batch_size": 200,
-    "test_conf_path": "../test_conf/test_pan_tilt_vergence_fast_obj_distance_2.pkl",
+    #"test_conf_path": "../test_conf/test_pan_tilt_vergence_fast_obj_distance_2.pkl",
+    "test_conf_path": "../test_conf/sample_test_file.pkl",
     "buffer_size": 1000,
     "ratios": "1 3",
     # "turn_2_frames_vergence_off": " "
