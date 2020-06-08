@@ -8,7 +8,7 @@ import numpy as np
 from helper.utils import deg, rad, to_angle
 
 class RandomScreen(Shape):
-    def __init__(self, min_distance, max_distance, max_speed_in_deg, textures_list):
+    def __init__(self, textures_list, min_distance=0.5, max_distance=5.0, max_depth_speed=0.03, max_speed_in_deg=0.5):
         shape = Shape("vs_screen#")
         self._handle = shape.get_handle()
         self.size = 1.5
@@ -16,6 +16,7 @@ class RandomScreen(Shape):
         self.min_distance = min_distance
         self.max_distance = max_distance
         self.max_speed = rad(max_speed_in_deg)
+        self.max_speed_depth = max_depth_speed  # in meters [m]
         self.episode_reset()
 
     def set_texture(self, index=None):
@@ -27,14 +28,18 @@ class RandomScreen(Shape):
                                     TextureMappingMode.CUBE, interpolate=False, uv_scaling=[self.size, self.size])
 
     def episode_reset(self, preinit=False):
-        self.distance = np.random.uniform(self.min_distance, self.max_distance)
-        self.speed = np.random.uniform(rad(0.0), rad(1.125))
+        self.start_distance = np.random.uniform(self.min_distance, self.max_distance)
+        self.distance = self.start_distance
+        self.delta_distance = np.random.uniform(-self.max_speed_depth, self.max_speed_depth)
+        self.speed = np.random.uniform(rad(0.0), self.max_speed)
         self.direction = np.random.uniform(0, 2 * np.pi)
         self.set_texture()
         self.set_episode_iteration(-1 if preinit else 0)
 
-    def set_trajectory(self, distance, tilt_speed_deg, pan_speed_deg, preinit=False):
-        self.distance = distance
+    def set_trajectory(self, distance, tilt_speed_deg, pan_speed_deg, depth_speed, preinit=False):
+        self.start_distance = distance
+        self.distance = self.start_distance
+        self.delta_distance = depth_speed
         tilt_speed = rad(tilt_speed_deg)
         pan_speed = rad(pan_speed_deg)
         self.speed = np.sqrt(tilt_speed ** 2 + pan_speed ** 2)
@@ -49,6 +54,7 @@ class RandomScreen(Shape):
     def set_episode_iteration(self, it):
         self._episode_iteration = it
         self.set_position(self.position)
+        #self.set_orientation(self.orientation)  # Maybe add later to orient the screen during episodes
 
     def increment_iteration(self):
         self.set_episode_iteration(self._episode_iteration + 1)
@@ -58,30 +64,48 @@ class RandomScreen(Shape):
         sin_speed = np.sin(self._episode_iteration * self.speed)
         cos_dir = np.cos(self.direction)
         sin_dir = np.sin(self.direction)
+        self.distance = self.start_distance + (self._episode_iteration * self.delta_distance)
         x = self.distance * sin_speed * cos_dir
         y = self.distance * cos_speed
         z = self.distance * sin_speed * sin_dir
         return [x, y, z]
 
+    def _get_orientation(self):
+        tilt_speed, pan_speed = self.tilt_pan_speed
+        tilt, pan = tilt_speed * self._episode_iteration, pan_speed * self._episode_iteration
+        x = rad(90 + tilt)
+        y = rad(-pan)
+        z = 0
+        return [x, y, z]
+
     def _get_tilt_pan_speed(self):
         return [deg(self.speed * np.sin(self.direction)), deg(self.speed * np.cos(self.direction))]
 
+    orientation = property(_get_orientation)
     position = property(_get_position)
     tilt_pan_speed = property(_get_tilt_pan_speed)
 
 
 class Environment:
-    def __init__(self, texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_png_selection/",
-                 scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot_collection.ttt", headless=True):
+    def __init__(self,
+                 texture="/home/aecgroup/aecdata/Textures/mcgillManMade_600x600_png_selection/",
+                 scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot_collection.ttt",
+                 headless_scene="/home/aecgroup/aecdata/Software/vrep_scenes/stereo_vision_robot_collection.ttt",  # Currently same scene, amek headless scene with less cameras for better performance
+                 headless=True
+                 ):
         self.pyrep = PyRep()
-        self.pyrep.launch(scene, headless=headless)
+        if headless:
+            self.pyrep.launch(headless_scene, headless=headless)
+        else:
+            self.pyrep.launch(scene, headless=headless)
         min_distance = 0.5
         max_distance = 5
         max_speed = 0.5
+        max_speed_depth = 0.03
         path = texture
         textures_names = listdir(path)
         textures_list = [self.pyrep.create_texture(path + name)[1] for name in textures_names]
-        self.screen = RandomScreen(min_distance, max_distance, max_speed, textures_list)
+        self.screen = RandomScreen(textures_list, min_distance, max_distance, max_speed_depth, max_speed)
         self.robot = StereoVisionRobot(min_distance, max_distance)
         self.pyrep.start()
 
@@ -251,8 +275,12 @@ class StereoVisionRobot:
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-
-    env = Environment()
+    #env = Environment()
+    env = Environment(
+        scene="/home/julian/PycharmProjects/VisionMA/src/resources/vrep_scenes/stereo_vision_robot_collection.ttt",
+        texture="/home/julian/PycharmProjects/VisionMA/src/resources/textures/mcgillManMade_600x600_bmp_selection/",
+        headless=False
+    )
     env.robot.set_position([0, 0, 0], joint_limit_type="none")
     env.step()
     for i in range(10):

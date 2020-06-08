@@ -145,6 +145,7 @@ class Worker:
             ("total_recerrs_4_frames", (np.float32)),
             ("scale_recerrs_4_frames", (np.float32, self.n_scales)),
             # ("total_reconstruction_error", np.float32),
+            ("object_distance", np.float32),
             ("eye_position", (np.float32, 3)),
             ("eye_speed", (np.float32, 2)),
             ("speed_error", (np.float32, 2)),
@@ -524,6 +525,7 @@ class Worker:
             test_data[:, 0]["critic_value_tilt"] = data["critic_value"]["tilt"]
             test_data[:, 0]["critic_value_pan"] = data["critic_value"]["pan"]
             test_data[:, 0]["critic_value_vergence"] = data["critic_value"]["vergence"]
+            test_data[:, 0]["object_distance"] = 0  # set to zero as well
             test_data[:, 0]["eye_position"] = (0, 0, 0)  # useless
             test_data[:, 0]["eye_speed"] = (0, 0)  # useless
             test_data[:, 0]["speed_error"] = test_cases_chunk["speed_error"]
@@ -573,6 +575,7 @@ class Worker:
                 test_case["object_distance"],
                 screen_speed[0],
                 screen_speed[1],
+                test_case["depth_speed"],
                 preinit=True)
             self.environment.step()
             left_image_before, right_image_before = self.environment.robot.get_vision()
@@ -593,6 +596,7 @@ class Worker:
                 test_data[i]["critic_value_tilt"] = data["critic_value"]["tilt"]
                 test_data[i]["critic_value_pan"] = data["critic_value"]["pan"]
                 test_data[i]["critic_value_vergence"] = data["critic_value"]["vergence"]
+                test_data[i]["object_distance"] = self.environment.screen.distance
                 test_data[i]["eye_position"] = self.environment.robot.position
                 test_data[i]["eye_speed"] = self.environment.robot.speed
                 test_data[i]["speed_error"] = test_data[i]["eye_speed"] - screen_speed
@@ -756,6 +760,50 @@ class Worker:
             self._n_time_measurements += 1
             if current_n_episode >= after_n_episode:
                 break
+        self.pipe.send("{} going IDLE".format(self.name))
+
+    def make_video_test_cases(self, path, test_cases, training=False):
+        actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
+        rectangles = [(
+            160 - self.crop_side_length / 2 * r,
+            120 - self.crop_side_length / 2 * r,
+            160 + self.crop_side_length / 2 * r,
+            120 + self.crop_side_length / 2 * r
+        ) for r in self.ratios]
+        print("{} will store the video under {}".format(self.name, path))
+        with get_writer(path, fps=25, format="mp4") as writer:
+            for pos, test_case in enumerate(test_cases):
+                print("{} test case {}/{}".format(self.name, pos + 1, len(test_cases)))
+                # self.environment.episode_reset(preinit=True)
+                # self.environment.step()  # moves the screen
+                # left_image_before, right_image_before = self.environment.robot.get_vision()
+                # for iteration in range(self.episode_length + 1):  # + 1 for the additional / sacrificial iteration
+                #     self.environment.step()  # moves the screen
+                #     left_image, right_image = self.environment.robot.get_vision()
+                #     feed_dict = {
+                #         self.left_cam: [left_image],
+                #         self.left_cam_before: [left_image_before],
+                #         self.right_cam: [right_image],
+                #         self.right_cam_before: [right_image_before]
+                #     }
+                #     action = self.sess.run(actions_indices, feed_dict)
+                #     self.environment.robot.set_action(self.actions_indices_to_values(action))
+                #     left_image_before = left_image
+                #     right_image_before = right_image
+                #     object_distance = self.environment.screen.distance
+                #     vergence_error = self.environment.robot.get_vergence_error(object_distance)
+                #     eyes_speed = self.environment.robot.speed
+                #     screen_speed = self.environment.screen.tilt_pan_speed
+                #     tilt_speed_error = eyes_speed[0] - screen_speed[0]
+                #     pan_speed_error = eyes_speed[1] - screen_speed[1]
+                #     print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(
+                #         vergence_error, tilt_speed_error, pan_speed_error))
+                #     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
+                #                        n_episodes, rectangles)
+                #     writer.append_data(frame)
+                #     if iteration == 0 or iteration == self.episode_length:
+                #         for i in range(12):
+                #             writer.append_data(frame)
         self.pipe.send("{} going IDLE".format(self.name))
 
     def make_video(self, path, n_episodes, training=False):

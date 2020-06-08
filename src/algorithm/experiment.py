@@ -59,9 +59,11 @@ def get_cluster(n_parameter_servers, n_workers):
 
 def get_n_ports(n, start_port=19000):
     """Returns a list of n usable ports, one for each worker"""
+
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
+
     port = start_port
     ports = []
     for i in range(n):
@@ -102,9 +104,9 @@ def collect_training_data(queue, path):
         data = queue.get()
         serialized_dtype = pickle.dumps(data.dtype)
         f.write(np.int32(len(serialized_dtype)))  # 4 bytes for serialized_dtype size
-        f.write(serialized_dtype)                 # n bytes for serialized_dtype
+        f.write(serialized_dtype)  # n bytes for serialized_dtype
         episode_length = data.shape[0]
-        f.write(np.int32(episode_length))         # 4 bytes for episode_length
+        f.write(np.int32(episode_length))  # 4 bytes for episode_length
         f.write(data.tobytes())
         while True:
             t0 = time.time()
@@ -127,7 +129,8 @@ class Experiment:
     It starts one process per worker, and one process per parameter server
     It also constructs the filesystem tree for storing all results / data"""
 
-    def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, test_conf_path=None, worker0_display=False):
+    def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, test_conf_path=None,
+                 worker0_display=False):
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
         self.experiment_dir = experiment_dir
@@ -138,7 +141,10 @@ class Experiment:
         with open(self.confdir + "/worker_conf.pkl", "wb") as f:
             pickle.dump(self.worker_conf, f)
         with open(self.confdir + "/test_conf_path.txt", "w") as f:
-            f.write(test_conf_path)
+            if test_conf_path:
+                f.write(test_conf_path)
+            else:
+                print("[Warning] No test conf path given! Make sure this is intentional!")
         with open(self.confdir + "/command_line.txt", "w") as f:
             f.write("python3 " + " ".join(sys.argv) + "\n")
         self.ports = get_n_ports(n_workers, start_port=19000)
@@ -174,16 +180,17 @@ class Experiment:
         self.testing_data_queue = multiprocessing.Queue(maxsize=10000)
         self.test_cases_queue = multiprocessing.Queue(maxsize=10000)
         ### start all processes ###
-        all_processes = self.parameter_servers_processes + self.workers_processes + [self.summary_collector_process, self.training_data_collector_process]
+        all_processes = self.parameter_servers_processes + self.workers_processes + [self.summary_collector_process,
+                                                                                     self.training_data_collector_process]
         for p in all_processes:
             p.start()
-        print("EXPERIMENT: all processes started. Waiting for answer...")
+        print("EXPERIMENT: All processes started. Waiting for answer...")
         for p in self.here_pipes:
             print(p.recv())
-        print("EXPERIMENT: all processes started. Waiting for answer... received")
-        print("EXPERIMENT: loading test_conf from hard drive")
+        print("EXPERIMENT: All processes started. Waiting for answer... received")
+        print("EXPERIMENT: Loading test_conf from hard drive")
         self.test_conf = None if test_conf_path is None else TestConf.load(test_conf_path)
-        print("EXPERIMENT: loading test_conf from hard drive ... done")
+        print("EXPERIMENT: Loading test_conf from hard drive ... done")
 
     def mktree(self):
         self.logdir = self.experiment_dir + "/log"
@@ -214,7 +221,8 @@ class Experiment:
             "testing_data_queue": self.testing_data_queue,
             "test_cases_queue": self.test_cases_queue
         }
-        worker = Worker(self.cluster, task_index, pipe_and_queues, self.logdir, self.ports[task_index], self.worker_conf, self.worker0_display)
+        worker = Worker(self.cluster, task_index, pipe_and_queues, self.logdir, self.ports[task_index],
+                        self.worker_conf, self.worker0_display)
         worker.wait_for_variables_initialization()
         worker()
 
@@ -224,9 +232,11 @@ class Experiment:
                 print("restarting tensorboard")
                 self.close_tensorboard()
         port = get_available_port()
-        self.tensorboard_process = subprocess.Popen(["tensorboard", "--logdir", self.logdir, "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        self.tensorboard_process = subprocess.Popen(["tensorboard", "--logdir", self.logdir, "--port", str(port)],
+                                                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         time.sleep(2)
-        self.chromium_process = subprocess.Popen(["chromium-browser", "http://localhost:{}".format(port)], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        self.chromium_process = subprocess.Popen(["chromium-browser", "http://localhost:{}".format(port)],
+                                                 stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
     def close_tensorboard(self):
         if self.tensorboard_process is not None and self.chromium_process is not None:
@@ -249,11 +259,11 @@ class Experiment:
             p.recv()
 
     def get_current_update_count(self):
-        self.here_pipes[0].send(("get_current_update_count", ))
+        self.here_pipes[0].send(("get_current_update_count",))
         return self.here_pipes[0].recv()
 
     def get_current_episode_count(self):
-        self.here_pipes[0].send(("get_current_episode_count", ))
+        self.here_pipes[0].send(("get_current_episode_count",))
         return self.here_pipes[0].recv()
 
     def test(self, chunks_size=30, outpath=None):
@@ -332,6 +342,13 @@ class Experiment:
         path = self.videodir if outpath is None else outpath
         path += "/{}.mp4".format(name)
         self.here_pipes[0].send(("make_video", path, n_episodes, training))
+        print(self.here_pipes[0].recv())
+
+    def make_video_test_cases(self, name, training=False, outpath=None):
+        list_of_test_cases = self.test_conf.data["test_cases_policy_dependent"]
+        path = self.videodir if outpath is None else outpath
+        path += "/{}.mp4".format(name)
+        self.here_pipes[0].send(("make_video_test_cases", path, list_of_test_cases, training))
         print(self.here_pipes[0].recv())
 
     def restore_model(self, path):
