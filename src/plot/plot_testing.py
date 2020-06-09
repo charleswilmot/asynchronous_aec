@@ -862,32 +862,48 @@ def plot_test(experiment_metadata, test_data_filename, save, overwrite):
         triple_wrt_error(lists_of_param_anchors, data, turn_2_frames_vergence_on=turn_2_frames_vergence_on)
     ### Depth plot:
     if "depth_trajectory" in lists_of_param_anchors:
-        plot_depth_vergence_error(lists_of_param_anchors, data)
-        plot_sample_depth_trajectory(lists_of_param_anchors, data)
+        plot_all_depth(lists_of_param_anchors, data)
 
 
-def plot_sample_depth_trajectory(lists_of_param_anchors, data, n=10):
+
+def plot_all_depth(lists_of_param_anchors, data):
     anchors = lists_of_param_anchors['depth_trajectory']
+
+    with FigureManager("depth_trajectory.png") as fig:
+        plot_n_depth_trajectory(fig, anchors, data, n=10)
+
+    with FigureManager("depth_error.png") as fig:
+        plot_depth_error(fig, anchors, data)
+
+
+def plot_n_depth_trajectory(fig, anchors, data, n=10):
+    ax = fig.add_subplot(111)
+    plot_n_depth_trajectory_ax(ax, anchors, data, n=n)
+
+
+def plot_depth_error(fig, anchors, data):
+    ax = fig.add_subplot(111)
+    plot_depth_error_ax(ax, anchors, data)
+
+
+def plot_n_depth_trajectory_ax(ax, anchors, data, n=10):
     data = filter_data(data, **anchors)
     test_cases = np.array([a for a, b in data])
     data = np.array([b for a, b in data], dtype=data[0][1].dtype)  # np.array of np.ndarray
     random_indices = np.random.randint(len(data), size=n)
-    with FigureManager("depth.png") as fig:
-        ax = fig.add_subplot(111)
-        for i in random_indices:
-            object_distance = data[i]["object_distance"]
-            ax.plot(range(len(object_distance)), to_angle(object_distance), color="blue", linestyle="--")
-            vergence = data[i]["eye_position"][:, -1]
-            ax.plot(range(len(object_distance)), vergence, color="red", linestyle="--")
-        ax.set(xlabel='Iteration', ylabel='Vergence Angle (Deg)')
-        ax.set_title("Example Distance Change (Object & Vergence)")
-        ax.axhline(to_angle(0.5), ls='--', color='g')
-        ax.axhline(to_angle(5), ls='--', color='g')
-    plt.show()
+    for i in random_indices:
+        object_distance = data[i]["object_distance"]
+        ax.plot(range(len(object_distance)), to_angle(object_distance), color="blue", linestyle="--")
+        vergence = data[i]["eye_position"][:, -1]
+        ax.plot(range(len(object_distance)), vergence, color="red", linestyle="--")
+    ax.set(xlabel='Iteration', ylabel='Vergence Angle (Deg)')
+    ax.set_title("Example Distance Change (Object & Vergence)")
+    ax.axhline(to_angle(0.5), ls='--', color='g')
+    ax.axhline(to_angle(5), ls='--', color='g')
 
 
-def plot_depth_vergence_error(lists_of_param_anchors, data,):
-    anchors = lists_of_param_anchors['depth_trajectory']
+
+def plot_depth_error_ax(ax, anchors, data):
     data = filter_data(data, **anchors)
     test_cases = np.array([a for a, b in data])
     data = np.array([b for a, b in data], dtype=data[0][1].dtype)  # np.array of np.ndarray
@@ -918,64 +934,6 @@ def plot_depth_vergence_error(lists_of_param_anchors, data,):
     ax.axhline(2, ls='--', color='r')
     #ax.axhline(-0.2, ls='--', color='r')
     plt.show()
-    # print(data[:]["object_distance"])
-    # object_distance = data[:]["object_distance"]
-    # eye_position = data[:]["eye_position"]
-    # print(eye_position)
-    # num_iterations = range(len(eye_position[0]))
-    # print(data["eye_position"][300])
-    # #mean = np.mean(data["object_distance"], axis=0)
-    # mean = np.mean(data["vergence_error"], axis=0)
-    # print(mean)
-    # print(len(num_iterations))
-    # print(len(mean))
-    #
-    # with FigureManager("depth.png") as fig:
-    #     ax = fig.add_subplot(111)
-    #     # for i in range(10):
-    #     #     random_pos = np.random.randint(len(data["eye_position"]))
-    #     #     ax.plot(num_iterations, data["eye_position"][random_pos][..., -1], color="blue", linestyle="--")
-    #     #     ax.plot(num_iterations, to_angle(data["object_distance"][random_pos]), color="green", linestyle="--")
-    #     #for i in range(len(data)):
-    #     #    ax.plot(num_iterations, data["vergence_error"][i], color="blue", linestyle="--")
-    #     ax.plot(num_iterations, mean)
-    return df
-
-
-
-# def plot_test_2(experiment_metadata, test_data_filename, plot_list, save, overwrite):
-#     '''
-#     Load a single test data file and plots graphs according to plot_list
-#     :param plot_list:
-#     :param experiment_metadata:
-#     :param test_data_filename:
-#     :param save:
-#     :param overwrite:
-#     :return:
-#     '''
-#     df = None
-#     plots_output_dir = experiment_metadata["plot_testing_path"]
-#     data_input_path = experiment_metadata["test_data_path"] + "/" + test_data_filename
-#     plots_output_subdir = plots_output_dir + "/" + os.path.splitext(os.path.basename(data_input_path))[0] + "/"
-#     if save:
-#         os.makedirs(plots_output_subdir, exist_ok=True)
-#         try:
-#             os.makedirs(plots_output_subdir, exist_ok=overwrite)
-#         except Exception as e:
-#             print(plots_output_subdir, " : file exists")
-#     FigureManager._path = plots_output_subdir
-#     FigureManager._save = save
-#     test_conf_filename = "_".join(test_data_filename.split("_")[1:])
-#     test_conf_path = "../test_conf/" + test_conf_filename
-#     lists_of_param_anchors = TestConf.load_test_description(test_conf_path)
-#     with open(data_input_path, "rb") as f:
-#         data = pickle.load(f)
-#     for plot_name in plot_list:
-#         if plot_name == 'depth_movement':
-#             df = plot_depth_movement(lists_of_param_anchors, data)
-#         if plot_name == 'sample_depth_path':
-#             plot_depth_trajectory(lists_of_param_anchors, data)
-#     return df
 
 
 def plot_all_tests(experiment_metadata, save, overwrite):
@@ -989,11 +947,6 @@ def plot_all_tests(experiment_metadata, save, overwrite):
         if test_data_filename.endswith(".pkl"):
             plot_test(experiment_metadata, test_data_filename, save, overwrite)
 
-
-# plot_list = [
-#     'depth_movement',
-#     'sample_depth_path',
-# ]  # List of all the plots that should be generated
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -1016,46 +969,5 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    # paths = [
-    #     "/home/jkling/Desktop/aec/asynchronous_aec/experiments/2020_05_16-22.24.36_mlr5.00e-04_clr5.00e-04__Default_Run_Main_Branch",
-    #     "/home/jkling/Desktop/aec/asynchronous_aec/experiments/2020_05_24-16.34.44_mlr5.00e-04_clr5.00e-04__Radial_Depth_Change_0_01_Choice_Episode_Length_20_Rotation_Off/",
-    #     "/home/jkling/Desktop/aec/asynchronous_aec/experiments/2020_05_24-16.34.05_mlr5.00e-04_clr5.00e-04__Radial_Depth_Change_0_02_Choice_Episode_Length_20_Rotation_Off/",
-    #     "/home/jkling/Desktop/aec/asynchronous_aec/experiments/2020_05_25-08.36.16_mlr5.00e-04_clr5.00e-04__Radial_Depth_Change_0_03_Choice_Episode_Length_20_Rotation_Off/",
-    #     "/home/jkling/Desktop/aec/asynchronous_aec/experiments/2020_05_25-08.39.17_mlr5.00e-04_clr5.00e-04__Radial_Depth_Change_0_025_Continuous_Episode_Length_10_Rotation_Off"
-    # ]
-    # file = [
-    #     '0100235_radial_depth_movement.pkl',
-    #     '0100162_radial_depth_movement.pkl',
-    #     '0100154_radial_depth_movement.pkl',
-    #     '0100152_radial_depth_movement.pkl',
-    #     '0100152_radial_depth_movement.pkl',
-    #         ]
-    #
-    # label = [
-    #     '0 cm',
-    #     '1 cm',
-    #     '2 cm',
-    #     '3 cm',
-    #     'Rand. unif. 0 cm - 2.5 cm'
-    # ]
-    #
-    # df_list = []
-    # for i, path in enumerate(paths):
-    #     experiment_metadata = get_experiment_metadata(path)
-    #     df_list.append(plot_test(experiment_metadata, file[i], plot_list, save=args.save, overwrite=args.overwrite))
-    #     df_list[-1]["Screen Speed (cm/it)"] = label[i]
-    # result = df_list[0]
-    # for df in df_list[1:]:
-    #     result = result.append(df, ignore_index=True)
-    # ax = sns.lineplot(x="Iteration", y="Vergence Error", data=result, hue="Screen Speed (cm/it)",)
-    # ax.axhline(0, ls='--')
-    # ax.axhline(1, ls='--', color='r')
-    # ax.set(xlabel='Iteration', ylabel='Vergence Error (px)')
-    # ax.set_title("Mean Absolute Vergence Error (within one episode)")
-    # #ax.axhline(-0.2, ls='--', color='r')
-    # plt.show()
-
     experiment_metadata = get_experiment_metadata(args.path)
     plot_all_tests(experiment_metadata, args.save, args.overwrite)
-    #plot_test(experiment_metadata, '0100154_sample_test_file.pkl', plot_list, args.save, args.overwrite)
-    #plot_test_2(experiment_metadata, '0100235_radial_depth_movement.pkl', args.save, args.overwrite)
