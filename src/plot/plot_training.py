@@ -1,9 +1,9 @@
 import os
 import argparse
-from read_data import read_training_data, read_all_abs_testing_performance
+from read_data import read_training_data, read_all_abs_testing_performance, get_experiment_metadata
 import numpy as np
 import matplotlib.pyplot as plt
-from helper.utils import vergence_error
+from helper.utils import vergence_error, to_angle, to_distance
 from helper.generate_test_conf import TestConf
 from plot.write_data import FigureManager
 
@@ -11,7 +11,38 @@ from plot.write_data import FigureManager
 TRAINING_DATA_RECORD_FREQ = 10
 
 
+def plot_n_vergence_performance(fig, data, n, m):
+    ax = fig.add_subplot(111)
+    vergence_errors = vergence_error(data["eyes_position"][-n:-m], data["object_distance"][-n:-m])
+    num_iterations = range(len(data["eyes_position"][0]))
+    for i, vergence_error_list in enumerate(vergence_errors):
+        ax.plot(num_iterations, vergence_error_list / 90 * 320, color="green", linestyle="--")
+        # ax.fill_between(num_iterations, data["eyes_position"][-i][..., -1], to_angle(data["object_distance"][-i]),
+        #                 where=to_angle(data["object_distance"][-i]) >= data["eyes_position"][-i][..., -1], facecolor="blue")
+        # ax.fill_between(num_iterations, data["eyes_position"][-i][..., -1], to_angle(data["object_distance"][-i]),
+        #                 where=to_angle(data["object_distance"][-i]) <= data["eyes_position"][-i][..., -1], facecolor="red")
+        #ax.plot(num_iterations, data["eyes_position"][-i][..., -1])
+        #ax.plot(num_iterations, to_angle(data["object_distance"][-i]))
+        ax.plot(num_iterations, to_distance(data["eyes_position"][-i-n][..., -1]), color="blue", linestyle="--")
+        ax.plot(num_iterations, data["object_distance"][-i-n], color="red", linestyle="--")
+    ax.axhline(0, color="k", linestyle="--")
+    ax.legend()
+    ax.set_xlabel("Iterations")
+    ax.set_ylabel("Speed error in px it-1\nVergence error in px")
+    ax.set_ylim([-3, 6])
+    ax.set_title("Training vergence error last 10 test episodes")
+
+
 def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
+    """
+    Plots the speed error of pan, tilt and vergence with respect to training time
+    :param fig:
+    :param data:
+    :param abs_errors:
+    :param win_size:
+    :param stddev:
+    :return:
+    """
     ax = fig.add_subplot(111)
     # speed_errors_tilt = data["eyes_speed"][:, -1, 0] + data["object_speed"][:, -1, 0]
     # speed_errors = data["eyes_speed"][:, -1] - data["object_speed"][:, -1]
@@ -20,7 +51,7 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     speed_errors_tilt = data["eyes_speed"][:, -1, 0] - data["object_speed"][:, -1, 0]
     speed_errors_pan = data["eyes_speed"][:, -1, 1] - data["object_speed"][:, -1, 1]
     vergence_errors = vergence_error(data["eyes_position"][:, -1], data["object_distance"][:, -1])
-    kernel = np.exp(-(np.arange(-win_size / 2, win_size / 2) ** 2) / stddev ** 2)
+    kernel = np.exp(-(np.arange(-win_size / 2, win_size / 2) ** 2) / stddev ** 2) #RBF Kernel
     kernel /= np.sum(kernel)
     a = np.convolve(np.abs(speed_errors_tilt), kernel, mode="valid")
     b = np.convolve(np.abs(speed_errors_pan), kernel, mode="valid")
@@ -43,9 +74,11 @@ def plot_joint_errors(fig, data, abs_errors, win_size=500, stddev=200):
     ax.set_title("Speed error wrt train time")
 
 
-def plot(data, abs_errors):
-    with FigureManager("joint_errors.png") as fig:
-        plot_joint_errors(fig, data, abs_errors, 500, 200)
+def plot(data, abs_errors=None):
+    # with FigureManager("joint_errors.png") as fig:
+    #     plot_joint_errors(fig, data, abs_errors, 500, 200)
+    with FigureManager("vergence_with_depth.png") as fig:
+        plot_n_vergence_performance(fig, data, 20, 11)
 
 
 def plot_train(experiment_metadata, save, overwrite):
@@ -66,6 +99,7 @@ def plot_train(experiment_metadata, save, overwrite):
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
