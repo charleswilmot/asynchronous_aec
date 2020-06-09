@@ -776,7 +776,8 @@ class Worker:
             for pos, test_case in enumerate(test_cases):
                 if pos > test_case_limit:
                     break
-                print("{}: Test Case {}/{} ({} test cases in total)".format(self.name, pos + 1, test_case_limit, len(test_cases)))
+                print("{}: Test Case {}/{} ({} test cases in total)".format(self.name, pos + 1, min(
+                    test_case_limit, len(test_cases)), len(test_cases)))
                 print("\t Parameters for this test case: {}".format(test_case))
                 vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
                 screen_speed = -test_case["speed_error"]
