@@ -39,15 +39,15 @@ if __name__ == "__main__":
     n_parameter_servers = 1
     n_workers = 1
 
-    #test_cases = None
+    test_cases = None
     "(Stimulus ID, Initial depth position, Initial vergence error, Initial speed error;Pan/Tilt speed, Depth speed, Episode iterations)"
-    test_cases = [
-        test_case(0, 2, 0, [0., 0.], -0.03, 20),
-        test_case(0, 3, 0, [0., 0.], -0.00, 20),
-        test_case(4, 2.5, 0, [0., 0.], 0.03, 20),
-        test_case(0, 4, 0, [1., 0.], -0.01, 20),
-        test_case(6, 5, 0, [0., 1.], -0.01, 20),
-    ]
+    # test_cases = [
+    #     test_case(0, 2, 0, [0., 0.], -0.03, 20),
+    #     test_case(0, 3, 0, [0., 0.], -0.00, 20),
+    #     test_case(4, 2.5, 0, [0., 0.], 0.03, 20),
+    #     test_case(0, 4, 0, [1., 0.], -0.01, 20),
+    #     test_case(6, 5, 0, [0., 1.], -0.01, 20),
+    # ]
 
     with open(experiment_dir + "/../../conf/worker_conf.pkl", "rb") as f:
         worker_conf = pickle.load(f)
