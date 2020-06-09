@@ -8,7 +8,6 @@ import pickle
 if __name__ == "__main__":
     import argparse
 
-
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -22,7 +21,7 @@ if __name__ == "__main__":
         type=str,
         action='store',
         default="default_name",
-        help="Path to the checkpoint."
+        help="Name of the video."
     )
 
     args = parser.parse_args()
@@ -36,5 +35,5 @@ if __name__ == "__main__":
 
     with TemporaryDirectory() as d:
         with Experiment(n_parameter_servers, n_workers, d + "/dummy/", worker_conf, worker0_display=False) as exp:
-            exp.restore_model(experiment_dir)
+            exp.restore_all(experiment_dir)
             exp.make_video(args.name, 20, outpath=args.path + "/../../video/")
