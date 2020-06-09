@@ -115,10 +115,9 @@ class TestConf:
     def add_to_policy_dependent(self, test_cases):
         self.data["test_cases_policy_dependent"] = np.union1d(self.data["test_cases_policy_dependent"], test_cases)
 
-    def add_vergence_trajectory(self, stimulus=None, object_distances=None, vergence_errors=None, depth_speed=None,
-                                n_iterations=None):
+    def add_vergence_trajectory(self, stimulus=None, object_distances=None, vergence_errors=None, n_iterations=None):
         IMPOSED_SPEED_ERROR = [(0, 0)]
-        IMPOSED_DEPTH_SPEED = 0
+        IMPOSED_DEPTH_SPEED = [0]
         self.add("vergence_trajectory",
                  stimulus=stimulus if stimulus is not None else self.default_stimulus,
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
@@ -128,8 +127,7 @@ class TestConf:
                  n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
                  )
 
-    def add_depth_trajectory(self, stimulus=None, object_distances=None, vergence_errors=None, depth_speed=None,
-                             n_iterations=None):
+    def add_depth_trajectory(self, stimulus=None, object_distances=None, depth_speed=None, n_iterations=None):
         IMPOSED_SPEED_ERROR = [(0, 0)]
         IMPOSED_VERGENCE_ERROR = [0]
         self.add("depth_trajectory",
@@ -141,10 +139,9 @@ class TestConf:
                  n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
                  )
 
-    def add_speed_trajectory(self, pan_or_tilt, stimulus=None, object_distances=None, speed_errors=None,
-                             depth_speed=None, n_iterations=None):
+    def add_speed_trajectory(self, pan_or_tilt, stimulus=None, object_distances=None, speed_errors=None, n_iterations=None):
         IMPOSED_VERGENCE_ERROR = [0]
-        IMPOSED_DEPTH_SPEED = 0
+        IMPOSED_DEPTH_SPEED = [0]
         speed_errors = speed_errors if speed_errors is not None else self.default_speed_errors
         if pan_or_tilt == "tilt":
             to_stack = [speed_errors, np.zeros(len(speed_errors))]
@@ -164,7 +161,7 @@ class TestConf:
                                depth_speed=None, ):
         IMPOSED_N_ITERATIONS = [1]
         IMPOSED_SPEED_ERROR = [(0, 0)]
-        IMPOSED_DEPTH_SPEED = 0
+        IMPOSED_DEPTH_SPEED = [0]
         vergence_error = vergence_error_bound_in_px * 90 / 320
         vergence_errors = np.arange(-vergence_error, vergence_error + min_action, min_action)
         self.add("wrt_vergence_error",
@@ -180,7 +177,7 @@ class TestConf:
                             depth_speed=None, ):
         IMPOSED_N_ITERATIONS = [1]
         IMPOSED_VERGENCE_ERROR = [0]
-        IMPOSED_DEPTH_SPEED = 0
+        IMPOSED_DEPTH_SPEED = [0]
         speed_error = speed_error_bound_in_px * 90 / 320
         speed_errors = np.arange(-speed_error, speed_error + min_action, min_action)
         if pan_or_tilt == "tilt":
@@ -196,6 +193,23 @@ class TestConf:
                  depth_speed=IMPOSED_DEPTH_SPEED,
                  n_iterations=IMPOSED_N_ITERATIONS
                  )
+
+    def add_test_case_video(self, stimulus=None, object_distances=None, vergence_errors=None, speed_errors=None,
+                            depth_speed=None, n_iterations=None):
+        speed_errors = speed_errors if speed_errors is not None else self.default_speed_errors
+        to_stack_tilt = [speed_errors, np.zeros(len(speed_errors))]
+        speed_errors_tilt = np.stack(to_stack_tilt, axis=-1)
+        to_stack_pan = [np.zeros(len(speed_errors)), speed_errors]
+        speed_errors_pan = np.stack(to_stack_pan, axis=-1)
+        speed_errors = np.concatenate([speed_errors_tilt, speed_errors_pan], axis=0)
+        self.add("test_case_video",
+                stimulus=stimulus if stimulus is not None else self.default_stimulus,
+                object_distances=object_distances if object_distances is not None else self.default_object_distances,
+                vergence_errors=vergence_errors if vergence_errors is not None else self.default_vergence_errors,
+                speed_errors=speed_errors if speed_errors is not None else self.default_speed_errors,
+                depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
+                n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
+                )
 
 
 def test_case(stimulus, object_distance, vergence_error, speed_error, depth_speed, n_iterations):
@@ -314,27 +328,53 @@ if __name__ == "__main__":
     # with open("../../test_conf/test_pan_tilt_vergence.pkl", "wb") as f:
     #     pickle.dump(test_conf, f)
 
-    speed_and_vergence_errors = [90 / 320 * i for i in
-                                 [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4]]
-    depth_speed = [-0.03, -0.01, 0.0, 0.01, 0.03]
-    bound_in_px = 8
+    '''
+    New content here - delete above if not needed!
+    '''
+
+    # stimulus = range(20)
+    # object_distance = [0.5, 2, 3.5, 5]
+    # # Errors in deg
+    # speed_and_vergence_errors = [90 / 320 * i for i in
+    #                              [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4]]
+    # depth_speed = [-0.03, -0.01, 0.0, 0.01, 0.03]
+    # iterations = [20]
+    #
+    # bound_in_px = 8
+    #
+    # test_conf = TestConf(
+    #     stimulus=stimulus,
+    #     object_distances=object_distance,
+    #     speed_errors=speed_and_vergence_errors,
+    #     vergence_errors=speed_and_vergence_errors,
+    #     depth_speed=depth_speed,
+    #     n_iterations=iterations
+    # )
+    #
+    # test_conf.add_depth_trajectory()
+    # test_conf.add_vergence_trajectory()
+    # test_conf.add_speed_trajectory("tilt")
+    # test_conf.add_speed_trajectory("pan")
+    #
+    # test_conf.add_wrt_vergence_error(bound_in_px)
+    # test_conf.add_wrt_speed_error("tilt", bound_in_px)
+    # test_conf.add_wrt_speed_error("pan", bound_in_px)
+
+    #For Video Test Cases
+    stimulus = [2, 4, 8, 16]
+    object_distance = [1, 3, 5]
+    speed_and_vergence_errors = [90 / 320 * i for i in [-1.5, -4,  1.5, 4]]
+    depth_speed = [-0.02, 0.0, 0.02]
+    iterations = [30]
 
     test_conf = TestConf(
-        stimulus=range(20),
-        object_distances=[0.5, 2, 3.5, 5],  # [2]
+        stimulus=stimulus,
+        object_distances=object_distance,
         speed_errors=speed_and_vergence_errors,
         vergence_errors=speed_and_vergence_errors,
         depth_speed=depth_speed,
-        n_iterations=[20]
+        n_iterations=iterations
     )
 
-    test_conf.add_depth_trajectory()
-    test_conf.add_vergence_trajectory()
-    test_conf.add_speed_trajectory("tilt")
-    test_conf.add_speed_trajectory("pan")
-
-    test_conf.add_wrt_vergence_error(bound_in_px)
-    test_conf.add_wrt_speed_error("tilt", bound_in_px)
-    test_conf.add_wrt_speed_error("pan", bound_in_px)
-
-    test_conf.dump("../test_conf/check_general_test_file.pkl")
+    test_conf.add_test_case_video(vergence_errors=[0])
+    test_conf.dump("../test_conf/video_test_cases.pkl")
