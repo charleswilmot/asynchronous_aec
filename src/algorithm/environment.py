@@ -8,7 +8,7 @@ import numpy as np
 from helper.utils import deg, rad, to_angle
 
 class RandomScreen(Shape):
-    def __init__(self, textures_list, min_distance=0.5, max_distance=5.0, max_depth_speed=0.03, max_speed_in_deg=0.5):
+    def __init__(self, textures_list, min_distance=0.5, max_distance=5.0, max_depth_speed=0.03, max_speed_in_deg=1.125):
         shape = Shape("vs_screen#")
         self._handle = shape.get_handle()
         self.size = 1.5
@@ -100,7 +100,7 @@ class Environment:
             self.pyrep.launch(scene, headless=headless)
         min_distance = 0.5
         max_distance = 5
-        max_speed = 0.5
+        max_speed = 1.125
         max_speed_depth = 0.03
         path = texture
         textures_names = listdir(path)
