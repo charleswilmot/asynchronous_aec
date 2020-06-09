@@ -762,7 +762,8 @@ class Worker:
                 break
         self.pipe.send("{} going IDLE".format(self.name))
 
-    def make_video_test_cases(self, path, test_cases, training=False):
+    # ToDo: Implement random subsample and sorting if needed, additional: write test parameters into video frame
+    def make_video_test_cases(self, path, test_cases, training=False, test_case_limit=100, sort_by=None, rand_subsample=False):
         actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
         rectangles = [(
             160 - self.crop_side_length / 2 * r,
@@ -773,37 +774,51 @@ class Worker:
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
             for pos, test_case in enumerate(test_cases):
-                print("{} test case {}/{}".format(self.name, pos + 1, len(test_cases)))
-                # self.environment.episode_reset(preinit=True)
-                # self.environment.step()  # moves the screen
-                # left_image_before, right_image_before = self.environment.robot.get_vision()
-                # for iteration in range(self.episode_length + 1):  # + 1 for the additional / sacrificial iteration
-                #     self.environment.step()  # moves the screen
-                #     left_image, right_image = self.environment.robot.get_vision()
-                #     feed_dict = {
-                #         self.left_cam: [left_image],
-                #         self.left_cam_before: [left_image_before],
-                #         self.right_cam: [right_image],
-                #         self.right_cam_before: [right_image_before]
-                #     }
-                #     action = self.sess.run(actions_indices, feed_dict)
-                #     self.environment.robot.set_action(self.actions_indices_to_values(action))
-                #     left_image_before = left_image
-                #     right_image_before = right_image
-                #     object_distance = self.environment.screen.distance
-                #     vergence_error = self.environment.robot.get_vergence_error(object_distance)
-                #     eyes_speed = self.environment.robot.speed
-                #     screen_speed = self.environment.screen.tilt_pan_speed
-                #     tilt_speed_error = eyes_speed[0] - screen_speed[0]
-                #     pan_speed_error = eyes_speed[1] - screen_speed[1]
-                #     print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(
-                #         vergence_error, tilt_speed_error, pan_speed_error))
-                #     frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1,
-                #                        n_episodes, rectangles)
-                #     writer.append_data(frame)
-                #     if iteration == 0 or iteration == self.episode_length:
-                #         for i in range(12):
-                #             writer.append_data(frame)
+                if pos > test_case_limit:
+                    break
+                print("{}: Test Case {}/{} ({} test cases in total)".format(self.name, pos + 1, test_case_limit, len(test_cases)))
+                print("\t Parameters for this test case: {}".format(test_case))
+                vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+                screen_speed = -test_case["speed_error"]
+                ### initialize environment, step simulation, take pictures, move screen
+                self.environment.robot.reset_speed()
+                self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
+                self.environment.screen.set_texture(test_case["stimulus"])
+                self.environment.screen.set_trajectory(
+                    test_case["object_distance"],
+                    screen_speed[0],
+                    screen_speed[1],
+                    test_case["depth_speed"],
+                    preinit=True)
+                self.environment.step()
+                left_image_before, right_image_before = self.environment.robot.get_vision()
+                for iteration in range(self.episode_length + 1):  # + 1 for the additional / sacrificial iteration
+                    self.environment.step()  # moves the screen
+                    left_image, right_image = self.environment.robot.get_vision()
+                    feed_dict = {
+                        self.left_cam: [left_image],
+                        self.left_cam_before: [left_image_before],
+                        self.right_cam: [right_image],
+                        self.right_cam_before: [right_image_before]
+                    }
+                    action = self.sess.run(actions_indices, feed_dict)
+                    self.environment.robot.set_action(self.actions_indices_to_values(action))
+                    left_image_before = left_image
+                    right_image_before = right_image
+                    object_distance = self.environment.screen.distance
+                    vergence_error = self.environment.robot.get_vergence_error(object_distance)
+                    eyes_speed = self.environment.robot.speed
+                    screen_speed = self.environment.screen.tilt_pan_speed
+                    tilt_speed_error = eyes_speed[0] - screen_speed[0]
+                    pan_speed_error = eyes_speed[1] - screen_speed[1]
+                    print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(
+                        vergence_error, tilt_speed_error, pan_speed_error))
+                    frame = make_frame(left_image, right_image, object_distance, vergence_error, pos + 1,
+                                       test_case_limit, rectangles)
+                    writer.append_data(frame)
+                    if iteration == 0 or iteration == self.episode_length:
+                        for i in range(12):
+                            writer.append_data(frame)
         self.pipe.send("{} going IDLE".format(self.name))
 
     def make_video(self, path, n_episodes, training=False):
