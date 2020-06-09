@@ -36,7 +36,7 @@ class TestConf:
         self.policy_independent_inputs = None
 
     # ToDo: Proper data representation of data in TestConf
-    def print(self):
+    def __repr__(self):
         print(self.data)
 
     def dump(self, path):
@@ -118,22 +118,24 @@ class TestConf:
     def add_vergence_trajectory(self, stimulus=None, object_distances=None, vergence_errors=None, depth_speed=None,
                                 n_iterations=None):
         IMPOSED_SPEED_ERROR = [(0, 0)]
+        IMPOSED_DEPTH_SPEED = 0
         self.add("vergence_trajectory",
                  stimulus=stimulus if stimulus is not None else self.default_stimulus,
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
                  vergence_errors=vergence_errors if vergence_errors is not None else self.default_vergence_errors,
                  speed_errors=IMPOSED_SPEED_ERROR,
-                 depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
+                 depth_speed=IMPOSED_DEPTH_SPEED,
                  n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
                  )
 
     def add_depth_trajectory(self, stimulus=None, object_distances=None, vergence_errors=None, depth_speed=None,
                              n_iterations=None):
         IMPOSED_SPEED_ERROR = [(0, 0)]
+        IMPOSED_VERGENCE_ERROR = [0]
         self.add("depth_trajectory",
                  stimulus=stimulus if stimulus is not None else self.default_stimulus,
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
-                 vergence_errors=vergence_errors if vergence_errors is not None else self.default_vergence_errors,
+                 vergence_errors=IMPOSED_VERGENCE_ERROR,
                  speed_errors=IMPOSED_SPEED_ERROR,
                  depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
                  n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
@@ -142,6 +144,7 @@ class TestConf:
     def add_speed_trajectory(self, pan_or_tilt, stimulus=None, object_distances=None, speed_errors=None,
                              depth_speed=None, n_iterations=None):
         IMPOSED_VERGENCE_ERROR = [0]
+        IMPOSED_DEPTH_SPEED = 0
         speed_errors = speed_errors if speed_errors is not None else self.default_speed_errors
         if pan_or_tilt == "tilt":
             to_stack = [speed_errors, np.zeros(len(speed_errors))]
@@ -153,7 +156,7 @@ class TestConf:
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
                  vergence_errors=IMPOSED_VERGENCE_ERROR,
                  speed_errors=speed_errors if speed_errors is not None else self.default_speed_errors,
-                 depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
+                 depth_speed=IMPOSED_DEPTH_SPEED,
                  n_iterations=n_iterations if n_iterations is not None else self.default_n_iterations
                  )
 
@@ -161,6 +164,7 @@ class TestConf:
                                depth_speed=None, ):
         IMPOSED_N_ITERATIONS = [1]
         IMPOSED_SPEED_ERROR = [(0, 0)]
+        IMPOSED_DEPTH_SPEED = 0
         vergence_error = vergence_error_bound_in_px * 90 / 320
         vergence_errors = np.arange(-vergence_error, vergence_error + min_action, min_action)
         self.add("wrt_vergence_error",
@@ -168,7 +172,7 @@ class TestConf:
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
                  vergence_errors=vergence_errors,
                  speed_errors=IMPOSED_SPEED_ERROR,
-                 depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
+                 depth_speed=IMPOSED_DEPTH_SPEED,
                  n_iterations=IMPOSED_N_ITERATIONS
                  )
 
@@ -176,6 +180,7 @@ class TestConf:
                             depth_speed=None, ):
         IMPOSED_N_ITERATIONS = [1]
         IMPOSED_VERGENCE_ERROR = [0]
+        IMPOSED_DEPTH_SPEED = 0
         speed_error = speed_error_bound_in_px * 90 / 320
         speed_errors = np.arange(-speed_error, speed_error + min_action, min_action)
         if pan_or_tilt == "tilt":
@@ -188,7 +193,7 @@ class TestConf:
                  object_distances=object_distances if object_distances is not None else self.default_object_distances,
                  vergence_errors=IMPOSED_VERGENCE_ERROR,
                  speed_errors=speed_errors,
-                 depth_speed=depth_speed if depth_speed is not None else self.default_depth_speed,
+                 depth_speed=IMPOSED_DEPTH_SPEED,
                  n_iterations=IMPOSED_N_ITERATIONS
                  )
 
