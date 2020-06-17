@@ -57,7 +57,7 @@ class FrameEditor:
         self.image[h0:h1, w0:w1] += (1 - alpha) * image
 
 
-class AnaglyphFrameEditor:
+class AnaglyphFrameEditor(FrameEditor):
     def __init__(self, image_left, image_right):
         image = np.matmul(
             np.concatenate(
@@ -65,4 +65,4 @@ class AnaglyphFrameEditor:
             ),
             anaglyph_matrix
         ).astype(np.uint8)
-        super(self, AnaglyphFrameEditor).__init__(image)
+        super(AnaglyphFrameEditor, self).__init__(image)
