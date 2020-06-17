@@ -236,6 +236,7 @@ if __name__ == "__main__":
             if test in save_at:
                 exp.save_model()
             exp.test()
+            exp.generate_saliency_map()
         if test not in save_at:
             exp.save_model()
         if not args.no_video:

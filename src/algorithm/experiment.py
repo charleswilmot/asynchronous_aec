@@ -196,6 +196,7 @@ class Experiment:
         self.logdir = self.experiment_dir + "/log"
         self.checkpointsdir = self.experiment_dir + "/checkpoints"
         self.videodir = self.experiment_dir + "/video"
+        self.saliencydir = self.experiment_dir + "/saliency"
         self.datadir = self.experiment_dir + "/data"
         self.testdatadir = self.experiment_dir + "/test_data"
         self.confdir = self.experiment_dir + "/conf"
@@ -203,6 +204,7 @@ class Experiment:
             os.makedirs(self.experiment_dir, exist_ok=True)
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.videodir)
+            os.makedirs(self.saliencydir)
             os.makedirs(self.datadir)
             os.makedirs(self.testdatadir)
             os.makedirs(self.confdir)
@@ -265,6 +267,11 @@ class Experiment:
     def get_current_episode_count(self):
         self.here_pipes[0].send(("get_current_episode_count",))
         return self.here_pipes[0].recv()
+
+    def generate_saliency_map(self, outpath=None):
+        path = self.saliencydir if outpath is None else outpath
+        self.here_pipes[0].send(("generate_saliency_map", path))
+        print(self.here_pipes[0].recv())
 
     def test(self, chunks_size=30, outpath=None):
         # policy independent test cases:

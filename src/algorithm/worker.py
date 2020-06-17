@@ -10,6 +10,7 @@ from helper.utils import to_angle, actions_set_values_tilt, actions_set_values_p
 from imageio import get_writer
 from PIL import ImageDraw, Image #, ImageFont
 import queue
+from scipy.stats import norm
 
 
 anaglyph_matrix = np.array([
@@ -23,7 +24,7 @@ anaglyph_matrix = np.array([
 
 
 # TODO: Fix this 2 frames
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles):
+def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, test_case=None, return_image=False):
     """Makes an anaglyph from a left and right images, plus writes some infos on the frame
     """
     # left right to anaglyph
@@ -37,7 +38,11 @@ def make_frame(left_image, right_image, object_distance, vergence_error, episode
     string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
         object_distance, vergence_error, episode_number, total_episode_number
     )
-    drawer.text((20,15), string, fill=(255,255,0))
+    if test_case:
+        string += "\nTest Case: {}".format(test_case)
+    drawer.text((20, 15), string, fill=(255, 255, 0))
+    if return_image:
+        return image
     return np.array(image, dtype=np.uint8)
 
 
@@ -296,7 +301,7 @@ class Worker:
             self.total_recerrs_2_frames += self.scale_recerrs_2_frames[ratio]
         self.total_recerrs_2_frames /= self.n_scales
 
-    def define_2_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2):
+    def define_2_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2, bn_downscale_factor=16):
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_2_frames[ratio]
         batch_size = tf.shape(inp)[0]
@@ -304,7 +309,7 @@ class Worker:
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 16, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // bn_downscale_factor, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
@@ -337,7 +342,7 @@ class Worker:
             self.total_recerrs_4_frames += self.scale_recerrs_4_frames[ratio]
         self.total_recerrs_4_frames /= self.n_scales
 
-    def define_4_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2):
+    def define_4_frames_autoencoder_scale(self, ratio, filter_size=4, stride=2, bn_downscale_factor=16):
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_4_frames[ratio]
         batch_size = tf.shape(inp)[0]
@@ -345,7 +350,7 @@ class Worker:
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 16, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // bn_downscale_factor, 1, 1, "valid", activation_fn=lrelu)
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 4 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 4, 1, 1, "valid", activation_fn=None)
@@ -494,6 +499,200 @@ class Worker:
         """
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
+
+    def generate_saliency_map(self, path):
+        path += "/"
+        rectangles = [(
+            160 - self.crop_side_length / 2 * r,
+            120 - self.crop_side_length / 2 * r,
+            160 + self.crop_side_length / 2 * r,
+            120 + self.crop_side_length / 2 * r
+        ) for r in self.ratios]
+        fetches = {
+            "scale_latent_conv_2_frames": self.scale_latent_conv_2_frames,
+            "scale_latent_conv_4_frames": self.scale_latent_conv_4_frames,
+            "scale_latent_2_frames": self.scale_latent_2_frames,
+            "scale_latent_4_frames": self.scale_latent_4_frames
+        }
+        # ToDo: The environment setup is gonna change to a multi target end of episode setting
+        self.environment.episode_reset()
+        self.environment.step()
+        left_image_before, right_image_before = self.environment.robot.get_vision()
+        self.environment.step()
+        left_image, right_image = self.environment.robot.get_vision()
+        feed_dict = {
+                self.left_cam: [left_image],
+                self.left_cam_before: [left_image_before],
+                self.right_cam: [right_image],
+                self.right_cam_before: [right_image_before]
+            }
+        data = self.sess.run(fetches, feed_dict=feed_dict)
+        for r in self.ratios:
+
+            ### ----------The actual "algorithm"---------
+
+            bn_encoding = data["scale_latent_conv_2_frames"][r]
+            bn_encoding_prob = np.array(np.zeros(bn_encoding.shape))
+            # Calculate mean and std and normal distribution for each y_i
+            mean = np.mean(bn_encoding, axis=(0, 1, 2))
+            std = np.std(bn_encoding, axis=(0, 1, 2))
+            mean_std = np.column_stack([mean, std])
+            norm_dis = []
+            for mean, std in mean_std:
+                norm_dis.append(norm(mean, std))
+            # Iterate over values and calculate P(y^j_i) for normal pdf
+            it = np.nditer(bn_encoding, flags=['multi_index'])
+            for x in it:
+                _, _, _, i = it.multi_index
+                #  Just to make sure std is not 0
+                if mean_std[i][1] == 0:
+                    print("Error: Std is 0!")
+                    exit()
+                bn_encoding_prob[it.multi_index] = norm_dis[i].pdf(x)
+            # Prod of values for each patch P(patch^j)
+            patch_prob = np.prod(bn_encoding_prob, axis=3)
+            patch_prob = -np.log(patch_prob)
+
+            ### -------------------
+
+            image = make_frame(left_image, right_image, 0, 0, 0, 0, rectangles, return_image=True)
+            image.save(path+"image{}_{}.jpeg".format(r, self.sess.run(self.episode_count)), "JPEG")
+            self.plot_image(path, patch_prob, r)
+
+            image = make_frame(left_image, right_image, 0, 0, 0, 0, rectangles, return_image=False)
+            self.merge_images(path, image, patch_prob, r, crop_size=(self.crop_side_length*r, self.crop_side_length*r))
+
+            self.side_by_side_image(image, path, r)
+        self.pipe.send("{} extracted bottleneck encoding, going IDLE".format(self.name))
+
+    ### ----------Ignore the following methods for now, they are just for plotting etc ---------
+    ### ----------Will clean up these methods and maybe partielly move them out of the worker class---------
+
+    def get_image_subset(self, img, shape=(8, 1)):
+        '''
+        :param img:
+        :param shape:
+        :return:
+        '''
+        filter_size, stride = shape
+        x, y, _ = img.shape
+        pos_x, pos_y = 0, 0
+        image_patches = []
+        while pos_x < x - filter_size:
+            patches_y = []
+            while pos_y < y - filter_size:
+                patches_y.append(img[pos_x:pos_x + filter_size, pos_y:pos_y + filter_size])
+                pos_y += stride
+            image_patches.append(patches_y)
+            pos_y = 0
+            pos_x += stride
+        return image_patches
+
+    def side_by_side_image(self, image, path, ratio, crop_size=(32, 32)):
+        '''
+        :param image:
+        :param path:
+        :param ratio:
+        :param crop_size:
+        :return:
+        '''
+        frame_crop = self.cropND(image, crop_size)
+        patches = self.get_image_subset(frame_crop)
+
+        values = patches[0][0].shape
+        template = np.array(np.zeros(values))
+        template = template.astype(np.uint8)
+
+        for pos, x in enumerate(patches):
+            image = x[0]
+            heatmap_tile = template
+            for pos2, patch in enumerate(x[1:]):
+                image = np.hstack([image, patch])
+                heatmap_tile = np.hstack([heatmap_tile, template])
+            if pos != 0:
+                combines_images = np.vstack([combines_images, image])
+                combines_heatmap = np.vstack([combines_heatmap, heatmap_tile])
+            else:
+                combines_images = image
+                combines_heatmap = heatmap_tile
+
+        combined = np.hstack([combines_images, combines_heatmap])
+        combined_pil = Image.fromarray(combined)
+        combined_pil.save(path + "final{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
+
+    def cropND(self, img, bounding):
+        '''
+        Extracts center crop of numpy image array
+        :param img:
+        :param bounding:
+        :return:
+        '''
+        import operator
+        start = tuple(map(lambda a, da: a // 2 - da // 2, img.shape, bounding))
+        end = tuple(map(operator.add, start, bounding))
+        slices = tuple(map(slice, start, end))
+        return img[slices]
+
+    def replaceCenter(self, img, center_img):
+        '''
+        Replaces the center of given numpy image with center image
+        :param img:
+        :param center_img:
+        :return:
+        '''
+        import math
+        x, y, _ = img.shape
+        x_c, y_c, _ = center_img.shape
+        x, y = x // 2, y // 2
+        x_c_1, x_c_2 = math.floor(x_c / 2), math.ceil(x_c / 2)
+        y_c_1, y_c_2 = math.floor(y_c / 2), math.ceil(y_c / 2)
+        img[x - x_c_1:x + x_c_2, y - y_c_1:y + y_c_2, :] = center_img
+        return img
+
+    def merge_images(self, path, frame, heatmap, ratio, crop_size=(256, 256)):
+        '''
+        Overlays image with heatmap at center
+        :param frame:
+        :param heatmap:
+        :param ratio:
+        :param crop_size:
+        :return:
+        '''
+        import matplotlib.pyplot as plt
+        heatmap = heatmap[0, ...]
+        # Normalize heatmap (todo make correct normalization) and apply color map
+        xmax, xmin = np.amax(heatmap), np.amin(heatmap)
+        heatmap = (heatmap - xmin) / (xmax - xmin)
+        cm = plt.get_cmap('hot')
+        heatmap = cm(heatmap)
+        heatmap_pil = Image.fromarray((heatmap[:, :, :3] * 255).astype(np.uint8))
+        heatmap_pil = heatmap_pil.resize(size=(crop_size[0], crop_size[1]), resample=Image.NEAREST)  # Image.BOX
+        heatmap_pil.save(path+"heatmap_cm{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
+
+        frame_crop = self.cropND(frame, crop_size)
+        frame_crop_pil = Image.fromarray(frame_crop)
+        blended = Image.blend(frame_crop_pil, heatmap_pil, alpha=0.45)
+
+        final_frame = self.replaceCenter(frame, np.array(blended))
+        final_frame_pil = Image.fromarray(final_frame)
+        final_frame_pil.save(path+"final{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
+
+    def plot_image(self, path, array, ratio):
+        '''
+        :param path:
+        :param array:
+        :param ratio:
+        :return:
+        '''
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(6, 3))
+        ax = fig.add_subplot(111)
+        ax.set_title('colorMap')
+        plt.imshow(array[0, ...], interpolation='gaussian')
+        plt.colorbar(orientation='vertical')
+        plt.savefig(path+'sample{}_{}.png'.format(ratio, self.sess.run(self.episode_count)))
+
+    ### -------------------
 
     def test_fast(self):
         fetches = {
@@ -762,7 +961,7 @@ class Worker:
                 break
         self.pipe.send("{} going IDLE".format(self.name))
 
-    # ToDo: Implement random subsample and sorting if needed, additional: write test parameters into video frame
+    # ToDo: Implement random subsample and sorting if needed
     def make_video_test_cases(self, path, test_cases, training=False, test_case_limit=100, sort_by=None, rand_subsample=False):
         actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
         rectangles = [(
