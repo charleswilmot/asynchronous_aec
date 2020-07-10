@@ -253,7 +253,7 @@ class Worker:
         if mt_env:
             self.environment = Environment_MT(headless=task_index != 0 or not worker0_display)
         else:
-        self.environment = Environment(headless=task_index != 0 or not worker0_display)
+            self.environment = Environment(headless=task_index != 0 or not worker0_display)
         print("{} starting V-Rep ... done.".format(self.name))
 
     def add_summary(self, summary, global_step):
