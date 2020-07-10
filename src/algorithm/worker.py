@@ -8,42 +8,24 @@ import time
 import os
 from helper.utils import to_angle, actions_set_values_tilt, actions_set_values_pan, actions_set_values_vergence
 from imageio import get_writer
-from PIL import ImageDraw, Image #, ImageFont
+from PIL import ImageDraw, Image  # , ImageFont
 import queue
+from helper.frame_editor import SaliencyFrameEditor, AnaglyphFrameEditor, FrameEditor, generate_heatmap_pil, \
+    normalize_heatmap
 from scipy.stats import norm
+from plot.plot_runtime import plot_heatmap
+import math
 
+from algorithm.environment_multi_target import Environment as Environment_MT
 
 anaglyph_matrix = np.array([
-    [0.299, 0    , 0    ],
-    [0.587, 0    , 0    ],
-    [0.114, 0    , 0    ],
-    [0    , 0.299, 0.299],
-    [0    , 0.587, 0.587],
-    [0    , 0.114, 0.114],
-    ])
-
-
-# TODO: Fix this 2 frames
-def make_frame(left_image, right_image, object_distance, vergence_error, episode_number, total_episode_number, rectangles, test_case=None, return_image=False):
-    """Makes an anaglyph from a left and right images, plus writes some infos on the frame
-    """
-    # left right to anaglyph
-    image = np.matmul(np.concatenate([left_image * 255, right_image * 255], axis=-1), anaglyph_matrix).astype(np.uint8)
-    # convert to PIL image
-    image = Image.fromarray(image)
-    # create a drawer form writing text on the frame
-    drawer = ImageDraw.Draw(image)
-    for rec in rectangles:
-        drawer.rectangle(rec, outline=(50, 0, 50, 50))
-    string = "Object distance (m): {: .2f}\nVergence error (deg): {: .2f}\nEpisode {: 3d}/{: 3d}".format(
-        object_distance, vergence_error, episode_number, total_episode_number
-    )
-    if test_case:
-        string += "\nTest Case: {}".format(test_case)
-    drawer.text((20, 15), string, fill=(255, 255, 0))
-    if return_image:
-        return image
-    return np.array(image, dtype=np.uint8)
+    [0.299, 0, 0],
+    [0.587, 0, 0],
+    [0.114, 0, 0],
+    [0, 0.299, 0.299],
+    [0, 0.587, 0.587],
+    [0, 0.114, 0.114],
+])
 
 
 def lrelu(x):
@@ -51,13 +33,97 @@ def lrelu(x):
     alpha = 0.2
     return tf.nn.relu(x) * (1 - alpha) + x * alpha
 
+###########################################################
+# This whole thing needs some cleanup
+# Some methode should be improved on, some should be moved
+###########################################################
+
+def gaussian(x, mu, sig):
+    return (1. / (np.sqrt(2. * np.pi) * sig)) * np.exp(-np.power((x - mu) / sig, 2.) / 2)
+
+
+def calculate_patch_prob(bn_encoding):
+    # Calculate mean and std and normal distribution for each y_i
+    mean_array = np.mean(bn_encoding, axis=(0, 1, 2))
+    std_array = np.std(bn_encoding, axis=(0, 1, 2))
+    # Iterate over values and calculate P(y^j_i) for normal pdf
+    bn_encoding_prob = gaussian(bn_encoding, mean_array[np.newaxis], std_array[np.newaxis])
+    # Prod of values for each patch P(patch^j)
+    bn_encoding_prob += 0.000001  # Too avoid 0 values resulting in inf values after prob. Seems to be done in the
+    # AIM algotihm as well
+    patch_prob = -np.log(bn_encoding_prob)
+    patch_prob = np.sum(patch_prob, axis=3)
+    return patch_prob
+
+
+def gauss_filter(a, sigma=1.4):
+    y, x = np.meshgrid(np.arange(a.shape[0]), np.arange(a.shape[1]), indexing='ij')
+    x_z, y_z = a.shape
+    x_center, y_center = x_z // 2, y_z // 2
+    x_pos, y_pos = (x - x_center), (-y + y_center)
+    # return a - (1 / 2 * np.pi * sigma ** 2) * np.exp(-(y_pos ** 2 + x_pos ** 2) / 2 * sigma ** 2)
+    return a - np.exp(-(y_pos ** 2 + x_pos ** 2) / 2 * sigma ** 2)
+
+
+def rect_filter(a, width):
+    x_z, y_z = a.shape
+    x_center, y_center = x_z // 2, y_z // 2
+    # print(x_z, x_center)
+    a[x_center - width:x_center + width, y_center - width:y_center + width] = 0
+    return a
+
+
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0)  # only difference
+
+
+def find_saccade_position(heatmap, blur_radius=5, path=None, mode="softmax"):
+    heatmap = np.copy(heatmap)
+    size_x, size_y = heatmap.shape
+    if mode == "softmax":
+        heatmap_flat = heatmap.flatten()
+        heatmap_softmax = softmax(heatmap_flat)
+        pos = np.random.choice(range(len(heatmap_softmax)), p=heatmap_softmax)
+        x, y = math.ceil(pos/size_x), pos%size_y
+    elif mode == "rect":
+        heatmap = normalize_heatmap(heatmap)
+        heatmap = rect_filter(heatmap, 50)
+        ysize, xsize = heatmap.shape
+        x, y = np.meshgrid(np.arange(ysize), np.arange(xsize), indexing='ij')
+        b = np.array([[np.mean(heatmap[y - blur_radius:y + blur_radius, x - blur_radius:x + blur_radius])
+                       for y in range(blur_radius, ysize - blur_radius)]
+                      for x in range(blur_radius, xsize - blur_radius)])
+        maxcenterx = np.unravel_index(b.argmax(), b.shape)[0] + blur_radius
+        maxcentery = np.unravel_index(b.argmax(), b.shape)[1] + blur_radius
+        heatmap[maxcentery - blur_radius:maxcentery + blur_radius, maxcenterx - blur_radius:maxcenterx + blur_radius,
+        ...] = 1
+        x, y = maxcentery, maxcenterx
+    return heatmap, x, y
+
+
+def distance_center(x, y, width, height):
+    center_x = width // 2
+    center_y = height // 2
+    x_target = x - center_x
+    y_target = y - center_y
+    return x_target, y_target
+
+
+def pan_tilt_deg(x, y):
+    deg_per_pix = 90 / 256
+    return x * deg_per_pix, y * deg_per_pix
+
 
 class Worker:
     """A worker is a client in a subprocess waiting for instruction.
     It first defines a model according to the model's parameters, then goes to the idle mode, and waits for instructions
     todo: see the Conf object: pass a Conf instance to the Worker constructor.
     """
-    def __init__(self, cluster, task_index, pipe_and_queues, logdir, simulator_port, worker_conf, worker0_display=False):
+
+    def __init__(self, cluster, task_index, pipe_and_queues, logdir, simulator_port, worker_conf,
+                 worker0_display=False, mt_env=False):
         ### configuration of distributed TF
         self.task_index = task_index
         self.cluster = cluster
@@ -260,11 +326,29 @@ class Worker:
             self.define_critic_joint(joint_name)
 
     def define_inps(self):
-        """Generates the different 32x32 image patches for the given ratios."""
+        """Generates the different 32x32 image patches for the given ratios and a close-to full screen input"""
         self.scales_inp_2_frames = {}
         self.scales_inp_4_frames = {}
+        self.saliency_inp = {}
         for ratio in self.ratios:
             self.define_scale_inp(ratio)
+        self.define_full_screen_inp()  # Add flag to switch between 2 and 4 frames autoencoder bottleneck
+
+    def define_full_screen_inp(self):
+        """Crops, downscales and converts a central region of the camera images
+        Input: Image patch with size 16*ratio x 16*ratio --> Output: Image patch with 16 x 16"""
+        self.crop_side_length_saliency_height = 32 * 7  # should be defined in the command line
+        self.crop_side_length_saliency_width = 32 * 9  # should be defined in the command line
+        height_slice = slice(
+            (240 - (self.crop_side_length_saliency_height)) // 2,
+            (240 + (self.crop_side_length_saliency_height)) // 2)
+        width_slice = slice(
+            (320 - (self.crop_side_length_saliency_width)) // 2,
+            (320 + (self.crop_side_length_saliency_width)) // 2)
+        # CROP
+        saliency_frame = self.stacked_4_frames[:, height_slice, width_slice, :]
+        self.saliency_inp = tf.placeholder_with_default(saliency_frame, shape=saliency_frame.get_shape(),
+                                                        name="saliency_inp")
 
     def define_scale_inp(self, ratio):
         """Crops, downscales and converts a central region of the camera images
@@ -305,11 +389,13 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_2_frames[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 4, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 4, filter_size, stride, "valid", activation_fn=lrelu,
+                          reuse=None, scope='conv_layer_2_1_{}'.format(ratio))  # Naming: conv_layer_frames_layer_ratio
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 2 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // bn_downscale_factor, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // bn_downscale_factor, 1, 1, "valid",
+                               activation_fn=lrelu, reuse=None, scope='conv_layer_2_2_{}'.format(ratio))
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 2 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 2 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 2, 1, 1, "valid", activation_fn=None)
@@ -346,11 +432,13 @@ class Worker:
         """Defines an autoencoder that operates at one scale (one downscaling ratio)"""
         inp = self.scales_inp_4_frames[ratio]
         batch_size = tf.shape(inp)[0]
-        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 4, filter_size, stride, "valid", activation_fn=lrelu)
+        conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 4, filter_size, stride, "valid", activation_fn=lrelu,
+                          reuse=None, scope='conv_layer_4_1_{}'.format(ratio))
         # conv2 = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv3 = tl.conv2d(conv2, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
         # bottleneck = tl.conv2d(conv3, filter_size ** 2 * 3 * 4 // 8, 1, 1, "valid", activation_fn=lrelu)
-        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // bn_downscale_factor, 1, 1, "valid", activation_fn=lrelu)
+        bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // bn_downscale_factor, 1, 1, "valid",
+                               activation_fn=lrelu, reuse=None, scope='conv_layer_4_2_{}'.format(ratio))
         # conv5 = tl.conv2d(bottleneck, filter_size ** 2 * 3 * 4 // 4, 1, 1, "valid", activation_fn=lrelu)
         # conv6 = tl.conv2d(conv5, filter_size ** 2 * 3 * 4 // 2, 1, 1, "valid", activation_fn=lrelu)
         # reconstruction = tl.conv2d(conv6, filter_size ** 2 * 3 * 4, 1, 1, "valid", activation_fn=None)
@@ -394,6 +482,23 @@ class Worker:
         img = tf.concat([top_row, bottom_row], axis=0)
         self.scale_tensorboard_images[ratio] = tf.expand_dims(img, axis=0)
 
+    def define_saliency_encoder(self, filter_size=4, stride=2, bn_downscale_factor=16, use_2_frames=False):
+        """Defines the saliency encoder using weight sharing with the 2 or 4 frames autoencoder"""
+        inp = self.saliency_inp
+        if use_2_frames:
+            conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 2 // 4, filter_size, stride, "valid", activation_fn=lrelu,
+                              reuse=True, scope='conv_layer_2_1_1')
+            bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 2 // bn_downscale_factor, 1, 1, "valid",
+                                   activation_fn=lrelu, reuse=True, scope='conv_layer_2_2_1')
+        else:
+            conv1 = tl.conv2d(inp + 0, filter_size ** 2 * 3 * 4 // 4, filter_size, stride, "valid", activation_fn=lrelu,
+                              reuse=True, scope='conv_layer_4_1_1')
+            bottleneck = tl.conv2d(conv1, filter_size ** 2 * 3 * 4 // bn_downscale_factor, 1, 1, "valid",
+                                   activation_fn=lrelu, reuse=True, scope='conv_layer_4_2_1')
+        size = np.prod(bottleneck.get_shape()[1:])
+        self.latent_conv_saliency = bottleneck
+        self.latent_saliency = tf.reshape(bottleneck, (-1, size))
+
     def define_epsilon(self):
         self.epsilon = tf.Variable(self.epsilon_init)
         self.epsilon_update = self.epsilon.assign(self.epsilon * self.epsilon_decay)
@@ -415,6 +520,7 @@ class Worker:
             self.define_4_frames_autoencoder(filter_size=8, stride=4)
             if self.turn_2_frames_vergence_on:
                 self.define_2_frames_autoencoder(filter_size=8, stride=4)
+            self.define_saliency_encoder(filter_size=8, stride=1)
         self.define_epsilon()
         self.define_critic()
         ### summaries
@@ -500,19 +606,42 @@ class Worker:
         self.saver.restore(self.sess, os.path.normpath(path + "/network.ckpt"))
         self.pipe.send("{} variables restored from {}".format(self.name, path))
 
-    def generate_saliency_map(self, path):
-        path += "/"
+    def generate_saliency_images(self, saliency_frame_editor, path, name, episode_count, patch_prob, ratio, stride,
+                                 crop_size, test_case=None):
+        '''
+        Goal:  5 images: Normal view, view with heatmap, heatmap as plot, heatmap as image, image with all patches
+        '''
         rectangles = [(
             160 - self.crop_side_length / 2 * r,
             120 - self.crop_side_length / 2 * r,
             160 + self.crop_side_length / 2 * r,
             120 + self.crop_side_length / 2 * r
         ) for r in self.ratios]
+        if test_case is not None:
+            saliency_frame_editor.add_saliency_frame_info(test_case)
+        # 1: Save plain camera image
+        saliency_frame_editor.save(name + "_episode_{}_image".format(episode_count))
+        # 2: Plot matplotlib plot of heatmap
+        heatmap_plot_filename = name + "_episode_{}_heatmap_plot".format(episode_count)
+        plot_heatmap(patch_prob, heatmap_plot_filename, path)
+        # 3/4: Overlay camera image and PIL heatmap
+        heatmap_filename = name + "_episode_{}_heatmap".format(episode_count)
+        saliency_frame_editor.save(heatmap_filename, saliency_frame_editor.heatmap_pil, height_or_width='both')
+        saliency_frame_editor.overlay_heatmap(name + "_episode_{}_image_heatmap_overlay".format(episode_count),
+                                              crop_size)
+        # 5: Combined image of patches and heatmap
+        saliency_frame_editor.image_patches((224, 288), ratio, 8, stride,
+                                            name + "_episode_{}_patch_heatmap".format(episode_count))
+
+    def generate_saliency_map(self, path):
         fetches = {
             "scale_latent_conv_2_frames": self.scale_latent_conv_2_frames,
             "scale_latent_conv_4_frames": self.scale_latent_conv_4_frames,
             "scale_latent_2_frames": self.scale_latent_2_frames,
-            "scale_latent_4_frames": self.scale_latent_4_frames
+            "scale_latent_4_frames": self.scale_latent_4_frames,
+            "latent_conv_saliency": self.latent_conv_saliency,
+            "latent_saliency": self.latent_saliency,
+            "episode_count": self.episode_count
         }
         # ToDo: The environment setup is gonna change to a multi target end of episode setting
         self.environment.episode_reset()
@@ -521,178 +650,25 @@ class Worker:
         self.environment.step()
         left_image, right_image = self.environment.robot.get_vision()
         feed_dict = {
-                self.left_cam: [left_image],
-                self.left_cam_before: [left_image_before],
-                self.right_cam: [right_image],
-                self.right_cam_before: [right_image_before]
-            }
+            self.left_cam: [left_image],
+            self.left_cam_before: [left_image_before],
+            self.right_cam: [right_image],
+            self.right_cam_before: [right_image_before]
+        }
         data = self.sess.run(fetches, feed_dict=feed_dict)
         for r in self.ratios:
-
-            ### ----------The actual "algorithm"---------
-
-            bn_encoding = data["scale_latent_conv_2_frames"][r]
-            bn_encoding_prob = np.array(np.zeros(bn_encoding.shape))
-            # Calculate mean and std and normal distribution for each y_i
-            mean = np.mean(bn_encoding, axis=(0, 1, 2))
-            std = np.std(bn_encoding, axis=(0, 1, 2))
-            mean_std = np.column_stack([mean, std])
-            norm_dis = []
-            for mean, std in mean_std:
-                norm_dis.append(norm(mean, std))
-            # Iterate over values and calculate P(y^j_i) for normal pdf
-            it = np.nditer(bn_encoding, flags=['multi_index'])
-            for x in it:
-                _, _, _, i = it.multi_index
-                #  Just to make sure std is not 0
-                if mean_std[i][1] == 0:
-                    print("Error: Std is 0!")
-                    exit()
-                bn_encoding_prob[it.multi_index] = norm_dis[i].pdf(x)
-            # Prod of values for each patch P(patch^j)
-            patch_prob = np.prod(bn_encoding_prob, axis=3)
-            patch_prob = -np.log(patch_prob)
-
-            ### -------------------
-
-            image = make_frame(left_image, right_image, 0, 0, 0, 0, rectangles, return_image=True)
-            image.save(path+"image{}_{}.jpeg".format(r, self.sess.run(self.episode_count)), "JPEG")
-            self.plot_image(path, patch_prob, r)
-
-            image = make_frame(left_image, right_image, 0, 0, 0, 0, rectangles, return_image=False)
-            self.merge_images(path, image, patch_prob, r, crop_size=(self.crop_side_length*r, self.crop_side_length*r))
-
-            self.side_by_side_image(image, path, r)
-        self.pipe.send("{} extracted bottleneck encoding, going IDLE".format(self.name))
-
-    ### ----------Ignore the following methods for now, they are just for plotting etc ---------
-    ### ----------Will clean up these methods and maybe partielly move them out of the worker class---------
-
-    def get_image_subset(self, img, shape=(8, 1)):
-        '''
-        :param img:
-        :param shape:
-        :return:
-        '''
-        filter_size, stride = shape
-        x, y, _ = img.shape
-        pos_x, pos_y = 0, 0
-        image_patches = []
-        while pos_x < x - filter_size:
-            patches_y = []
-            while pos_y < y - filter_size:
-                patches_y.append(img[pos_x:pos_x + filter_size, pos_y:pos_y + filter_size])
-                pos_y += stride
-            image_patches.append(patches_y)
-            pos_y = 0
-            pos_x += stride
-        return image_patches
-
-    def side_by_side_image(self, image, path, ratio, crop_size=(32, 32)):
-        '''
-        :param image:
-        :param path:
-        :param ratio:
-        :param crop_size:
-        :return:
-        '''
-        frame_crop = self.cropND(image, crop_size)
-        patches = self.get_image_subset(frame_crop)
-
-        values = patches[0][0].shape
-        template = np.array(np.zeros(values))
-        template = template.astype(np.uint8)
-
-        for pos, x in enumerate(patches):
-            image = x[0]
-            heatmap_tile = template
-            for pos2, patch in enumerate(x[1:]):
-                image = np.hstack([image, patch])
-                heatmap_tile = np.hstack([heatmap_tile, template])
-            if pos != 0:
-                combines_images = np.vstack([combines_images, image])
-                combines_heatmap = np.vstack([combines_heatmap, heatmap_tile])
-            else:
-                combines_images = image
-                combines_heatmap = heatmap_tile
-
-        combined = np.hstack([combines_images, combines_heatmap])
-        combined_pil = Image.fromarray(combined)
-        combined_pil.save(path + "final{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
-
-    def cropND(self, img, bounding):
-        '''
-        Extracts center crop of numpy image array
-        :param img:
-        :param bounding:
-        :return:
-        '''
-        import operator
-        start = tuple(map(lambda a, da: a // 2 - da // 2, img.shape, bounding))
-        end = tuple(map(operator.add, start, bounding))
-        slices = tuple(map(slice, start, end))
-        return img[slices]
-
-    def replaceCenter(self, img, center_img):
-        '''
-        Replaces the center of given numpy image with center image
-        :param img:
-        :param center_img:
-        :return:
-        '''
-        import math
-        x, y, _ = img.shape
-        x_c, y_c, _ = center_img.shape
-        x, y = x // 2, y // 2
-        x_c_1, x_c_2 = math.floor(x_c / 2), math.ceil(x_c / 2)
-        y_c_1, y_c_2 = math.floor(y_c / 2), math.ceil(y_c / 2)
-        img[x - x_c_1:x + x_c_2, y - y_c_1:y + y_c_2, :] = center_img
-        return img
-
-    def merge_images(self, path, frame, heatmap, ratio, crop_size=(256, 256)):
-        '''
-        Overlays image with heatmap at center
-        :param frame:
-        :param heatmap:
-        :param ratio:
-        :param crop_size:
-        :return:
-        '''
-        import matplotlib.pyplot as plt
-        heatmap = heatmap[0, ...]
-        # Normalize heatmap (todo make correct normalization) and apply color map
-        xmax, xmin = np.amax(heatmap), np.amin(heatmap)
-        heatmap = (heatmap - xmin) / (xmax - xmin)
-        cm = plt.get_cmap('hot')
-        heatmap = cm(heatmap)
-        heatmap_pil = Image.fromarray((heatmap[:, :, :3] * 255).astype(np.uint8))
-        heatmap_pil = heatmap_pil.resize(size=(crop_size[0], crop_size[1]), resample=Image.NEAREST)  # Image.BOX
-        heatmap_pil.save(path+"heatmap_cm{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
-
-        frame_crop = self.cropND(frame, crop_size)
-        frame_crop_pil = Image.fromarray(frame_crop)
-        blended = Image.blend(frame_crop_pil, heatmap_pil, alpha=0.45)
-
-        final_frame = self.replaceCenter(frame, np.array(blended))
-        final_frame_pil = Image.fromarray(final_frame)
-        final_frame_pil.save(path+"final{}_{}.jpeg".format(ratio, self.sess.run(self.episode_count)), "JPEG")
-
-    def plot_image(self, path, array, ratio):
-        '''
-        :param path:
-        :param array:
-        :param ratio:
-        :return:
-        '''
-        import matplotlib.pyplot as plt
-        fig = plt.figure(figsize=(6, 3))
-        ax = fig.add_subplot(111)
-        ax.set_title('colorMap')
-        plt.imshow(array[0, ...], interpolation='gaussian')
-        plt.colorbar(orientation='vertical')
-        plt.savefig(path+'sample{}_{}.png'.format(ratio, self.sess.run(self.episode_count)))
-
-    ### -------------------
+            bn_encoding = data["scale_latent_conv_4_frames"][r]
+            patch_prob = calculate_patch_prob(bn_encoding)
+            crop_size = (self.crop_side_length * r, self.crop_side_length * r)
+            self.generate_saliency_images(path, "scale_{}".format(r), left_image, right_image, data["episode_count"],
+                                          patch_prob, r, 4, crop_size)
+        bn_encoding = data["latent_conv_saliency"]
+        patch_prob = calculate_patch_prob(bn_encoding)
+        # crop_size = (self.crop_side_length_saliency_height, self.crop_side_length_saliency_width)
+        crop_size = (self.crop_side_length_saliency_width, self.crop_side_length_saliency_height)
+        self.generate_saliency_images(path, "saliency", left_image, right_image, data["episode_count"], patch_prob, 7,
+                                      1, crop_size)
+        self.pipe.send("{} generated saliency map, going IDLE".format(self.name))
 
     def test_fast(self):
         fetches = {
@@ -848,7 +824,7 @@ class Worker:
             self.fill_behaviour_data(iteration, data)  # missing return targets
             if log_data:
                 self.fill_training_data(iteration, data)
-            self.fill_recerrs_data(iteration, data)    # for computation of return targets
+            self.fill_recerrs_data(iteration, data)  # for computation of return targets
             self.environment.robot.set_action(self.to_action(data))
             left_image_before = left_image
             right_image_before = right_image
@@ -961,9 +937,178 @@ class Worker:
                 break
         self.pipe.send("{} going IDLE".format(self.name))
 
+    def test_saliency_map(self, path, test_cases, name, test_case_limit=100):
+        """Performs tests in the environment, using the greedy policy.
+          The resulting measures are sent back to the Experiment class (the server)
+          """
+        fetches = {
+            "scale_latent_conv_2_frames": self.scale_latent_conv_2_frames,
+            "scale_latent_conv_4_frames": self.scale_latent_conv_4_frames,
+            "scale_latent_2_frames": self.scale_latent_2_frames,
+            "scale_latent_4_frames": self.scale_latent_4_frames,
+            "latent_conv_saliency": self.latent_conv_saliency,
+            "latent_saliency": self.latent_saliency,
+            "action_index": self.greedy_actions_indices,
+            "episode_count": self.episode_count
+        }
+        for pos, test_case in enumerate(test_cases):
+            if pos > test_case_limit:
+                break
+            print("{}: Test Case {}/{} ({} test cases in total)".format(self.name, pos + 1, min(
+                test_case_limit, len(test_cases)), len(test_cases)))
+            print("\t Parameters for this test case: {}".format(test_case))
+            vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+            screen_speed = -test_case["speed_error"]
+            ### initialize environment, step simulation, take pictures, move screen
+            self.environment.robot.reset_speed()
+            self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
+            self.environment.screen.set_texture(test_case["stimulus"])
+            self.environment.screen.set_trajectory(
+                test_case["object_distance"],
+                screen_speed[0],
+                screen_speed[1],
+                test_case["depth_speed"],
+                preinit=True)
+            self.environment.step()
+            left_image_before, right_image_before = self.environment.robot.get_vision()
+            ###
+            for i in range(test_case["n_iterations"]):
+                self.environment.step()
+                left_image, right_image = self.environment.robot.get_vision()
+                feed_dict = {
+                    self.left_cam: [left_image],
+                    self.left_cam_before: [left_image_before],
+                    self.right_cam: [right_image],
+                    self.right_cam_before: [right_image_before]
+                }
+                data = self.sess.run(fetches, feed_dict=feed_dict)
+                action_value = self.actions_indices_to_values(data["action_index"])
+                if i + 1 != test_case["n_iterations"]:
+                    self.environment.robot.set_action(action_value, joint_limit_type="none")
+                else:
+                    # for encoding in encodings:
+                    #     for r in self.ratios:
+                    #         bn_encoding = data["scale_latent_conv_{}_frames".format(encoding)][r]
+                    #         patch_prob = calculate_patch_prob(bn_encoding)
+                    #         crop_size = (self.crop_side_length * r, self.crop_side_length * r)
+                    #         self.generate_saliency_images(path, "encoding_{}_scale_{}".format(encoding, r), left_image, right_image,
+                    #                                       data["episode_count"], patch_prob, r, 4, crop_size, test_case)
+                    bn_encoding = data["latent_conv_saliency"]
+                    patch_prob = calculate_patch_prob(bn_encoding)
+                    crop_size = (self.crop_side_length_saliency_width, self.crop_side_length_saliency_height)
+                    self.generate_saliency_images(path, name + "test_case_{}".format(pos + 1), left_image, right_image,
+                                                  data["episode_count"], patch_prob, 7, 1, crop_size, test_case)
+                left_image_before = left_image
+                right_image_before = right_image
+
+        self.pipe.send("{} no more test cases, going IDLE".format(self.name))
+
+    def saliency_saccadic_movement(self, path, test_cases, name, test_case_limit=100):
+        rectangles = [(
+            160 - self.crop_side_length / 2 * r,
+            120 - self.crop_side_length / 2 * r,
+            160 + self.crop_side_length / 2 * r,
+            120 + self.crop_side_length / 2 * r
+        ) for r in self.ratios]
+        fetches = {
+            "latent_conv_saliency": self.latent_conv_saliency,
+            "action_index": self.greedy_actions_indices,
+        }
+        print("Generating saccadic movement video! {} will store the video under {}".format(self.name, path))
+        with get_writer(path + name + "Video.mp4", fps=25, format="mp4") as writer, get_writer(
+                path + name + "VideoHeatmap.mp4", fps=25, format="mp4") as writer_heatmap:
+            for pos, test_case in enumerate(test_cases):
+                if pos > test_case_limit:
+                    print("Test case limit reached!")
+                    break
+                # print("{}: Test Case {}/{} ({} test cases in total)".format(self.name, pos + 1, min(
+                #     test_case_limit, len(test_cases)), len(test_cases)))
+                # print("\t Parameters for this test case: {}".format(test_case))
+                vergence_init = to_angle(test_case["object_distance"]) + test_case["vergence_error"]
+                screen_speed = -test_case["speed_error"]
+                ### initialize environment, step simulation, take pictures, move screen
+                self.environment.robot.reset_speed()
+                self.environment.robot.set_position([0, 0, vergence_init], joint_limit_type="none")
+                for id, screen in enumerate(self.environment.screens):
+                    if id == 0:
+                        screen.set_texture(test_case["stimulus"])
+                        screen.set_trajectory(
+                            test_case["object_distance"],
+                            screen_speed[0],
+                            screen_speed[1],
+                            test_case["depth_speed"],
+                            preinit=True)
+                    else:
+                        screen.episode_reset()
+                self.environment.step()
+                left_image_before, right_image_before = self.environment.robot.get_vision()
+
+                saccadic_movement_at = [21, 41, 61]
+                saccadic_movement_at_after = saccadic_movement_at + [i+1 for i in saccadic_movement_at]
+                pause_video_at = saccadic_movement_at_after + [0, test_case["n_iterations"]-1]
+
+                for i in range(test_case["n_iterations"]):
+                    self.environment.step()
+                    left_image, right_image = self.environment.robot.get_vision()
+                    if (i - 1) in saccadic_movement_at:
+                        left_image_before = left_image
+                        right_image_before = right_image
+                    feed_dict = {
+                        self.left_cam: [left_image],
+                        self.left_cam_before: [left_image_before],
+                        self.right_cam: [right_image],
+                        self.right_cam_before: [right_image_before]
+                    }
+                    data = self.sess.run(fetches, feed_dict=feed_dict)
+                    action_value = self.actions_indices_to_values(data["action_index"])
+                    bn_encoding = data["latent_conv_saliency"]
+                    patch_prob = calculate_patch_prob(bn_encoding)
+                    saliency_frame_editor = SaliencyFrameEditor(path, left_image, right_image, patch_prob)
+                    crop_size = (self.crop_side_length_saliency_width, self.crop_side_length_saliency_height)
+                    if (i - 1) in saccadic_movement_at:
+                        plot_heatmap(patch_prob[0, ...], "YYY_before", path)
+                    if i in saccadic_movement_at:
+                        heatmap, x, y = find_saccade_position(patch_prob[0, ...], path=path)
+                        saliency_frame_editor.heatmap = heatmap
+                        plot_heatmap(heatmap, "XXX_after", path)
+                        heatmap = np.hstack([saliency_frame_editor.heatmap, heatmap])
+                        saliency_frame_editor.save(name + "_episode_{}_test_heatmap_saccade_1".format(i + 1),
+                                                   generate_heatmap_pil(heatmap))
+                        x, y = distance_center(x, y, 320, 240)
+                        delta_pan, delta_tilt = pan_tilt_deg(x, y)
+                        pan, tilt, vergence = self.environment.robot.position
+                        self.environment.robot.set_position([pan + delta_pan, tilt + delta_tilt, vergence], None)
+                    elif i + 1 != test_case["n_iterations"]:
+                        self.environment.robot.set_action(action_value, joint_limit_type="none")
+                    left_image_before = left_image
+                    right_image_before = right_image
+                    saliency_frame_editor.add_video_frame_info(rectangles=rectangles,
+                                                               object_distance=None,
+                                                               speed_error=None,
+                                                               vergence_error=None,
+                                                               episode=pos + 1,
+                                                               max_episode=min(test_case_limit, len(test_cases)),
+                                                               test_case=None)
+                    if i in saccadic_movement_at_after:
+                        frame = saliency_frame_editor.overlay_heatmap(
+                            name + "_episode_{}_image_heatmap_overlay".format(i),
+                            crop_size)
+                    else:
+                        frame = np.array(saliency_frame_editor.image)
+                    writer.append_data(frame)
+                    if i in pause_video_at:
+                        for _ in range(12):
+                            writer.append_data(frame)
+
+        self.pipe.send("{} no more test cases, going IDLE".format(self.name))
+
     # ToDo: Implement random subsample and sorting if needed
-    def make_video_test_cases(self, path, test_cases, training=False, test_case_limit=100, sort_by=None, rand_subsample=False):
-        actions_indices = self.greedy_actions_indices if not training else self.sampled_actions_indices
+    def make_video_test_cases(self, path, test_cases, training=False, heatmap=False, test_case_limit=100, sort_by=None,
+                              rand_subsample=False):
+        fetches = {
+            "actions_indices": self.greedy_actions_indices if not training else self.sampled_actions_indices,
+            "latent_conv_saliency": self.latent_conv_saliency,
+        }
         rectangles = [(
             160 - self.crop_side_length / 2 * r,
             120 - self.crop_side_length / 2 * r,
@@ -1001,8 +1146,8 @@ class Worker:
                         self.right_cam: [right_image],
                         self.right_cam_before: [right_image_before]
                     }
-                    action = self.sess.run(actions_indices, feed_dict)
-                    self.environment.robot.set_action(self.actions_indices_to_values(action))
+                    data = self.sess.run(fetches, feed_dict)
+                    self.environment.robot.set_action(self.actions_indices_to_values(data["actions_indices"]))
                     left_image_before = left_image
                     right_image_before = right_image
                     object_distance = self.environment.screen.distance
@@ -1013,8 +1158,21 @@ class Worker:
                     pan_speed_error = eyes_speed[1] - screen_speed[1]
                     print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(
                         vergence_error, tilt_speed_error, pan_speed_error))
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, pos + 1,
-                                       test_case_limit, rectangles)
+                    if heatmap:
+                        bn_encoding = data["latent_conv_saliency"]
+                        patch_prob = calculate_patch_prob(bn_encoding)
+                        frame_editor = SaliencyFrameEditor(path, left_image, right_image, patch_prob)
+                        frame = np.hstack(np.array(frame_editor.heatmap_pil))
+                    else:
+                        frame_editor = AnaglyphFrameEditor(path, left_image, right_image)
+                        frame_editor.add_video_frame_info(rectangles=rectangles,
+                                                          object_distance=object_distance,
+                                                          speed_error=None,
+                                                          vergence_error=vergence_error,
+                                                          episode=pos + 1,
+                                                          max_episode=min(test_case_limit, len(test_cases)),
+                                                          test_case=test_case)
+                        frame = np.array(frame_editor.image)
                     writer.append_data(frame)
                     if iteration == 0 or iteration == self.episode_length:
                         for i in range(12):
@@ -1028,7 +1186,7 @@ class Worker:
             120 - self.crop_side_length / 2 * r,
             160 + self.crop_side_length / 2 * r,
             120 + self.crop_side_length / 2 * r
-            ) for r in self.ratios]
+        ) for r in self.ratios]
         print("{} will store the video under {}".format(self.name, path))
         with get_writer(path, fps=25, format="mp4") as writer:
             for episode_number in range(n_episodes):
@@ -1055,10 +1213,14 @@ class Worker:
                     screen_speed = self.environment.screen.tilt_pan_speed
                     tilt_speed_error = eyes_speed[0] - screen_speed[0]
                     pan_speed_error = eyes_speed[1] - screen_speed[1]
-                    print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(vergence_error, tilt_speed_error, pan_speed_error))
-                    frame = make_frame(left_image, right_image, object_distance, vergence_error, episode_number + 1, n_episodes, rectangles)
-                    writer.append_data(frame)
+                    print("vergence error: {: .4f}    tilt speed error: {: .4f}    pan speed error: {: .4f}".format(
+                        vergence_error, tilt_speed_error, pan_speed_error))
+                    video_frame_editor = AnaglyphFrameEditor(path, left_image, right_image)
+                    video_frame_editor.add_video_frame_info(rectangles=rectangles, object_distance=object_distance,
+                                                            speed_error=None, vergence_error=vergence_error,
+                                                            episode=episode_number + 1, max_episode=n_episodes)
+                    writer.append_data(np.array(video_frame_editor.image))
                     if iteration == 0 or iteration == self.episode_length:
                         for i in range(12):
-                            writer.append_data(frame)
+                            writer.append_data(np.array(video_frame_editor.image))
         self.pipe.send("{} going IDLE".format(self.name))

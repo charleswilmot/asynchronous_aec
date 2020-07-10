@@ -32,6 +32,12 @@ if __name__ == "__main__":
         help="Name of the video."
     )
 
+    parser.add_argument(
+        '-hmap', "--heatmap",
+        action='store_true',
+        help="Show heatmap instead images."
+    )
+
     args = parser.parse_args()
     experiment_dir = args.path
     test_conf_path = args.test_conf_path
@@ -59,9 +65,14 @@ if __name__ == "__main__":
             # Makes a normal video based on the experiment parameters if no test conf file if given via command line or
             # makes a video of specific test cases if test conf file is given via command line. If a test conf file is
             # given, test_conf.data["test_cases_policy_dependent"] test cases are used (with a limit of 100, can be
-            # ajusted) if test_cases in this file is None. If test_cases in this file is NOT None, the test cases of
+            # adjusted) if test_cases in this file is None. If test_cases in this file is NOT None, the test cases of
             # this file are being used.
             if test_conf_path:
-                exp.make_video_test_cases(args.name, outpath=args.path + "/../../video/", list_of_test_cases=test_cases)
+                if args.heatmap:
+                    exp.make_video_test_cases(args.name, outpath=args.path + "/../../video/",
+                                              list_of_test_cases=test_cases, heatmap=True)
+                else:
+                    exp.make_video_test_cases(args.name, outpath=args.path + "/../../video/",
+                                              list_of_test_cases=test_cases, heatmap=False)
             else:
                 exp.make_video(args.name, 20, outpath=args.path + "/../../video/")

@@ -130,13 +130,14 @@ class Experiment:
     It also constructs the filesystem tree for storing all results / data"""
 
     def __init__(self, n_parameter_servers, n_workers, experiment_dir, worker_conf, test_conf_path=None,
-                 worker0_display=False):
+                 worker0_display=False, mt_exp=False):
         self.n_parameter_servers = n_parameter_servers
         self.n_workers = n_workers
         self.experiment_dir = experiment_dir
         self.worker_conf = worker_conf
         self.test_conf_path = test_conf_path
         self.worker0_display = worker0_display
+        self.mt = mt_exp
         self.mktree()
         with open(self.confdir + "/worker_conf.pkl", "wb") as f:
             pickle.dump(self.worker_conf, f)
@@ -224,7 +225,7 @@ class Experiment:
             "test_cases_queue": self.test_cases_queue
         }
         worker = Worker(self.cluster, task_index, pipe_and_queues, self.logdir, self.ports[task_index],
-                        self.worker_conf, self.worker0_display)
+                        self.worker_conf, self.worker0_display, self.mt)
         worker.wait_for_variables_initialization()
         worker()
 
@@ -351,13 +352,12 @@ class Experiment:
         self.here_pipes[0].send(("make_video", path, n_episodes, training))
         print(self.here_pipes[0].recv())
 
-    # ToDo: Improve on selection of test cases, maybe have own data key 'test_cases_video'
-    def make_video_test_cases(self, name, training=False, outpath=None, list_of_test_cases=None):
+    def make_video_test_cases(self, name, training=False, outpath=None, list_of_test_cases=None, heatmap=False):
         if not list_of_test_cases:
             list_of_test_cases = self.test_conf.data["test_cases_policy_dependent"]
         path = self.videodir if outpath is None else outpath
         path += "/{}.mp4".format(name)
-        self.here_pipes[0].send(("make_video_test_cases", path, list_of_test_cases, training))
+        self.here_pipes[0].send(("make_video_test_cases", path, list_of_test_cases, training, heatmap))
         print(self.here_pipes[0].recv())
 
     def restore_model(self, path):
