@@ -114,3 +114,17 @@ venv.bak/
 /test_conf/*sample*
 /test_conf/
 /grouped_events_files/
+
+src/algorithm/environment_local_copy.py
+
+src/cluster.py
+
+src/display_test_conf.py
+
+src/exp_function.py
+
+src/helper/show_pkl_file.py
+
+src/weigth_sharing.py
+
+src/saliency_test.py
