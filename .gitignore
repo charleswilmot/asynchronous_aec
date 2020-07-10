@@ -112,4 +112,5 @@ venv.bak/
 /learning/
 /test_conf/*fast*
 /test_conf/*sample*
+/test_conf/
 /grouped_events_files/
