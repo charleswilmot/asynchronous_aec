@@ -274,6 +274,16 @@ class Experiment:
         self.here_pipes[0].send(("generate_saliency_map", path))
         print(self.here_pipes[0].recv())
 
+    def test_saliency_map(self, name, training=False, outpath=None, list_of_test_cases=None):
+        path = self.saliencydir if outpath is None else outpath
+        self.here_pipes[0].send(("test_saliency_map", path, list_of_test_cases, name))
+        print(self.here_pipes[0].recv())
+
+    def saliency_saccadic_movement(self, name, training=False, outpath=None, list_of_test_cases=None):
+        path = self.saliencydir if outpath is None else outpath
+        self.here_pipes[0].send(("saliency_saccadic_movement", path, list_of_test_cases, name))
+        print(self.here_pipes[0].recv())
+
     def test(self, chunks_size=30, outpath=None):
         # policy independent test cases:
         print("EXPERIMENT: policy independent testing")
